@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Outfit } from "next/font/google";
 import "./globals.css";
+import { AuthProvider } from "@/lib/auth-context";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -16,10 +17,11 @@ const outfit = Outfit({
 });
 
 export const metadata: Metadata = {
-  title: "Startup Saathi — AI-Powered Government Scheme Discovery for Startups",
+  title: "AROVA — AI-Native Government Scheme Intelligence Platform for Startups",
   description:
-    "Know exactly why you qualify, not just what exists. Startup Saathi is your AI-powered co-pilot that discovers, verifies, and helps you apply for government schemes with evidence-backed eligibility checks.",
+    "Know exactly why you qualify, not just what exists. AROVA is your AI-powered intelligence platform that discovers, verifies, and helps you apply for government schemes with evidence-backed eligibility checks.",
   keywords: [
+    "AROVA",
     "startup schemes",
     "government funding",
     "DPIIT",
@@ -29,7 +31,7 @@ export const metadata: Metadata = {
     "incubator matching",
   ],
   openGraph: {
-    title: "Startup Saathi — AI-Powered Government Scheme Discovery",
+    title: "AROVA — AI-Native Government Scheme Intelligence",
     description:
       "Know exactly why you qualify, not just what exists. Discover, verify, and apply for government startup schemes with AI.",
     type: "website",
@@ -46,7 +48,9 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} ${outfit.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col font-sans">{children}</body>
+      <body className="min-h-full flex flex-col font-sans bg-[#0A0A0A] text-white">
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }

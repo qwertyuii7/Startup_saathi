@@ -130,10 +130,22 @@ export default function ContactPage() {
     if (Object.keys(errs).length > 0) return;
 
     setStatus("submitting");
-    // Simulate async form submission
-    await new Promise((r) => setTimeout(r, 1800));
-    // 90% success for demo (always success here)
-    setStatus("success");
+    setErrors({});
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.success === false) {
+        throw new Error(data?.error?.message || "Submission failed. Please try again.");
+      }
+      setStatus("success");
+    } catch (e: unknown) {
+      setStatus("error");
+      setErrors({ message: e instanceof Error ? e.message : "Submission failed. Please try again." });
+    }
   };
 
   const handleReset = () => {
@@ -393,7 +405,7 @@ export default function ContactPage() {
                             value={form.name}
                             onChange={handleChange}
                             onBlur={() => handleBlur("name")}
-                            placeholder="Aaftab Khan"
+                            placeholder="Your full name"
                             className={`${fieldClass("name")} pl-9`}
                             aria-required="true"
                             aria-invalid={touched.name && !!errors.name}

@@ -12,37 +12,35 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   const { isOpen } = useCopilot();
 
   return (
-    <div className="flex h-screen w-full bg-neutral-50 overflow-hidden text-neutral-900 font-default selection:bg-violet-200">
+    <div className="flex h-screen w-full bg-[#FAFAFA] overflow-hidden text-neutral-900 font-default selection:bg-violet-500 selection:text-white">
       
       {/* Sidebar for Desktop/Tablet */}
       <Rail />
 
       {/* Main Content Area */}
       <div 
-        className={`flex-1 flex flex-col md:ml-[80px] xl:ml-[220px] min-h-screen overflow-hidden relative transition-all duration-300 ease-in-out ${
-          isOpen ? "lg:mr-[420px]" : "mr-0"
+        className={`flex-1 flex flex-col md:ml-[76px] xl:ml-[230px] min-h-screen overflow-hidden relative transition-all duration-300 ease-in-out ${
+          isOpen ? "xl:mr-[420px]" : "mr-0"
         }`}
       >
-        
-        {/* Top Bar */}
+        {/* Top Navbar */}
         <TopBar />
         
-        {/* Scrollable Page Content */}
-        <main className="flex-1 overflow-y-auto pb-20 md:pb-0 relative z-10 bg-white shadow-sm ring-1 ring-neutral-200 md:rounded-tl-2xl">
-           <div className="max-w-[960px] mx-auto w-full p-4 sm:p-6 md:p-8">
+        {/* Scrollable Main Workspace */}
+        <main className="flex-1 overflow-y-auto pb-24 md:pb-8 relative z-10 bg-[#FAFAFA]">
+           <div className="w-full max-w-none p-4 sm:p-6 md:p-8">
               {children}
            </div>
         </main>
-        
       </div>
 
-      {/* Bottom Tabs for Mobile */}
+      {/* Bottom Tabs for Mobile Navigation */}
       <BottomTabs />
 
-      {/* Copilot Split Workspace (Right Side) */}
+      {/* Ask AROVA AI Copilot Panel (Right Split Drawer) */}
       <CopilotPanel />
       
-      {/* Side Drawer */}
+      {/* Side Drawer for Proof/Simulation */}
       <Drawer />
       
     </div>

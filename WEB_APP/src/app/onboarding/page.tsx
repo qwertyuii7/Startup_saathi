@@ -1,157 +1,376 @@
 "use client";
-import { useState } from "react";
-import { UploadCloud, CheckCircle2, ArrowRight, FileText, Loader2, Building2 } from "lucide-react";
+
+import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
+import { OnboardingLayout } from "@/components/onboarding/OnboardingLayout";
+import { Step1Founder } from "@/components/onboarding/Step1Founder";
+import { Step2Startup } from "@/components/onboarding/Step2Startup";
+import { Step3Legal } from "@/components/onboarding/Step3Legal";
+import { Step4Business } from "@/components/onboarding/Step4Business";
+import { Step5Documents } from "@/components/onboarding/Step5Documents";
+import { StepComplete } from "@/components/onboarding/StepComplete";
+import { RequireAuth } from "@/components/auth/RequireAuth";
+import { AuthLoadingScreen } from "@/components/auth/AuthLoadingScreen";
+import { api } from "@/lib/api-client";
+import { useAuth } from "@/lib/auth-context";
+import { AlertCircle } from "lucide-react";
 
-export default function OnboardingPage() {
+interface FounderData {
+  name: string;
+  email: string;
+  phone: string;
+  role: string;
+}
+
+interface StartupData {
+  startupName: string;
+  description: string;
+  industry: string;
+  stage: string;
+  website: string;
+  entityType: string;
+  incorporationDate: string;
+  state: string;
+  city: string;
+  dpiitStatus: string;
+  dpiitRecognitionNumber: string;
+  revenueRange: string;
+  fundingStatus: string;
+  previousGovernmentFunding: string;
+  governmentFundingDetails: string;
+  annualTurnover: number;
+  assistanceInterests: string[];
+}
+
+// Step convention (shared with the backend):
+// stored onboardingStep = number of COMPLETED steps (0..5).
+// Display step = stored + 1 (clamped to 5); completed flag marks done.
+const TOTAL_STEPS = 5;
+
+function emptyForm(userName = "", userEmail = "") {
+  return {
+    founder: { name: userName, email: userEmail, phone: "", role: "Founder" } as FounderData,
+    startup: {
+      startupName: "",
+      description: "",
+      industry: "",
+      stage: "",
+      website: "",
+      entityType: "",
+      incorporationDate: "",
+      state: "",
+      city: "",
+      dpiitStatus: "",
+      dpiitRecognitionNumber: "",
+      revenueRange: "",
+      fundingStatus: "",
+      previousGovernmentFunding: "",
+      governmentFundingDetails: "",
+      annualTurnover: 0,
+      assistanceInterests: [],
+    } as StartupData,
+  };
+}
+
+function OnboardingFlow() {
   const router = useRouter();
-  const [step, setStep] = useState(1);
-  const [isExtracting, setIsExtracting] = useState(false);
+  const { user, refreshUser, setAuthUser } = useAuth();
+  const [currentStep, setCurrentStep] = useState<number>(1);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [saveError, setSaveError] = useState<string>("");
+  const [isFinished, setIsFinished] = useState<boolean>(false);
 
-  const handleUpload = () => {
-    setIsExtracting(true);
-    setTimeout(() => {
-      setIsExtracting(false);
-      setStep(2);
-    }, 2000); // simulate extraction
+  const [formData, setFormData] = useState(() => emptyForm());
+
+  // Load persisted onboarding status → resume at the saved step.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadStatus() {
+      try {
+        const res = await api.onboarding.getStatus();
+        if (cancelled) return;
+        if (res.success) {
+          if (res.completed) {
+            router.replace("/dashboard");
+            return;
+          }
+
+          const step =
+            typeof res.currentStep === "number" && res.currentStep >= 0 && res.currentStep <= TOTAL_STEPS
+              ? res.currentStep
+              : 0;
+          // stored = completed count → display the next incomplete step.
+          setCurrentStep(step >= TOTAL_STEPS ? TOTAL_STEPS : step + 1);
+
+          // Hydrate only with real persisted data — never fake defaults.
+          setFormData((prev) => ({
+            founder: {
+              name: res.profile?.name || user?.name || prev.founder.name,
+              email: res.profile?.email || user?.email || prev.founder.email,
+              phone: res.startup?.founderPhone || prev.founder.phone,
+              role: res.startup?.founderRole || prev.founder.role,
+            },
+            startup: {
+              ...prev.startup,
+              ...(res.startup
+                ? {
+                    startupName:
+                      res.startup.name || res.startup.startupName || prev.startup.startupName,
+                    description:
+                      res.startup.description || res.startup.summary || prev.startup.description,
+                    industry: res.startup.industry || res.startup.sector || prev.startup.industry,
+                    stage:
+                      res.startup.stage || res.startup.startupStage || prev.startup.stage,
+                    website: res.startup.website ?? prev.startup.website,
+                    entityType:
+                      res.startup.entityType || res.startup.legalEntity || prev.startup.entityType,
+                    incorporationDate:
+                      res.startup.incorporationDate || prev.startup.incorporationDate,
+                    state: res.startup.state || prev.startup.state,
+                    city: res.startup.city || prev.startup.city,
+                    dpiitStatus:
+                      res.startup.dpiitStatus ?? prev.startup.dpiitStatus,
+                    dpiitRecognitionNumber:
+                      res.startup.dpiitNumber ||
+                      res.startup.dpiitRecognitionNumber ||
+                      prev.startup.dpiitRecognitionNumber,
+                    revenueRange: res.startup.revenueRange || prev.startup.revenueRange,
+                    fundingStatus: res.startup.fundingStatus || prev.startup.fundingStatus,
+                    previousGovernmentFunding:
+                      res.startup.previousGovernmentFunding ??
+                      prev.startup.previousGovernmentFunding,
+                    governmentFundingDetails:
+                      res.startup.governmentFundingDetails ||
+                      prev.startup.governmentFundingDetails,
+                    annualTurnover:
+                      typeof res.startup.annualTurnover === "number"
+                        ? res.startup.annualTurnover
+                        : prev.startup.annualTurnover,
+                    assistanceInterests:
+                      res.startup.assistanceInterests || prev.startup.assistanceInterests,
+                  }
+                : {}),
+            },
+          }));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          // 401s are handled by RequireAuth/middleware; other errors keep
+          // the empty form so the user can still start step 1.
+          console.warn("Failed to fetch onboarding status:", err);
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    loadStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [router, user?.name, user?.email]);
+
+  // Persist a step — only advances the UI after the backend confirms.
+  const persistStep = useCallback(
+    async (payload: { step: number; startupData?: unknown; founderData?: unknown }) => {
+      setIsSaving(true);
+      setSaveError("");
+      try {
+        const res = await api.onboarding.updateStep(payload);
+        return res;
+      } catch (e: unknown) {
+        const message =
+          e instanceof Error ? e.message : "Could not save your progress. Please try again.";
+        setSaveError(message);
+        return null;
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    []
+  );
+
+  const handleStep1 = async (founderData: FounderData) => {
+    setFormData((prev) => ({ ...prev, founder: founderData }));
+    const res = await persistStep({ step: 1, founderData });
+    if (res) setCurrentStep(2);
   };
 
-  const handleFinish = () => {
-    router.push("/dashboard");
+  const handleStep2 = async (startupData: {
+    startupName: string;
+    description: string;
+    industry: string;
+    stage: string;
+    website: string;
+  }) => {
+    setFormData((prev) => ({ ...prev, startup: { ...prev.startup, ...startupData } }));
+    const res = await persistStep({ step: 2, startupData });
+    if (res) setCurrentStep(3);
   };
+
+  const handleStep3 = async (legalData: {
+    entityType: string;
+    incorporationDate: string;
+    state: string;
+    city: string;
+    dpiitStatus: "Yes" | "No" | "Applied / Pending" | "Not Sure";
+    dpiitRecognitionNumber: string;
+  }) => {
+    setFormData((prev) => ({ ...prev, startup: { ...prev.startup, ...legalData } }));
+    const res = await persistStep({ step: 3, startupData: legalData });
+    if (res) setCurrentStep(4);
+  };
+
+  const handleStep4 = async (bizData: {
+    revenueRange: string;
+    fundingStatus: string;
+    previousGovernmentFunding: "Yes" | "No" | "Not Sure";
+    governmentFundingDetails: string;
+    annualTurnover: number;
+  }) => {
+    setFormData((prev) => ({ ...prev, startup: { ...prev.startup, ...bizData } }));
+    const res = await persistStep({ step: 4, startupData: bizData });
+    if (res) setCurrentStep(5);
+  };
+
+  // Final step — the backend confirms persistence before we mark done.
+  // Sequence (no stale-state navigation):
+  //   1. await completeOnboarding()          (server sets onboardingCompleted + fresh cookie)
+  //   2. adopt the SERVER-CONFIRMED user     (never null-out fresh auth state)
+  //   3. re-sync via refreshUser()           (background consistency)
+  //   4. navigate only on confirmed completed state (replace, no login flash)
+  const handleStep5 = async (docData: { assistanceInterests: string[] }) => {
+    setFormData((prev) => ({
+      ...prev,
+      startup: { ...prev.startup, assistanceInterests: docData.assistanceInterests },
+    }));
+    setIsSaving(true);
+    setSaveError("");
+    try {
+      const saved = await api.onboarding.updateStep({
+        step: 5,
+        startupData: { assistanceInterests: docData.assistanceInterests },
+      });
+      if (!saved) return;
+      const done = await api.onboarding.complete();
+      if (!done?.success || !done.user) {
+        throw new Error("Could not complete onboarding. Please try again.");
+      }
+      // 2. Adopt the server-confirmed user directly.
+      if (typeof done.user.onboardingCompleted === "boolean") {
+        setAuthUser({
+          id: done.user.id,
+          email: done.user.email,
+          name: done.user.name,
+          avatar: done.user.avatar,
+          onboardingCompleted: done.user.onboardingCompleted,
+          onboardingStep: typeof done.user.onboardingStep === "number" ? done.user.onboardingStep : 5,
+        });
+      }
+      // 3. Re-sync session state in the background (never nulls fresh state
+      //    on transient failure — setAuthUser above is authoritative).
+      refreshUser({ force: true, keepOnError: true })
+        .then((fresh) => {
+          if (fresh && !fresh.onboardingCompleted) {
+            // Server disagrees: stay in onboarding, surface it.
+            setIsFinished(false);
+            setSaveError("Onboarding did not complete on the server. Please try again.");
+          }
+        })
+        .catch(() => undefined);
+      // 4. Navigate on the CONFIRMED completed state.
+      if (done.user.onboardingCompleted === true) {
+        setIsFinished(true);
+        router.replace("/dashboard");
+        return;
+      }
+      setIsFinished(true);
+    } catch (e: unknown) {
+      const message =
+        e instanceof Error ? e.message : "Could not complete onboarding. Please try again.";
+      setSaveError(message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (isLoading) {
+    return <AuthLoadingScreen message="Loading your profile setup..." />;
+  }
 
   return (
-    <div className="min-h-screen bg-neutral-50 flex flex-col items-center justify-center p-6 text-neutral-900 selection:bg-violet-200">
-      <div className="w-full max-w-xl bg-white border border-neutral-200 rounded-[2rem] p-8 md:p-12 shadow-xl relative overflow-hidden min-h-[500px] flex flex-col">
-        
-        {/* Progress Bar */}
-        <div className="absolute top-0 left-0 w-full h-1 bg-neutral-100">
-          <div 
-            className="h-full bg-violet-600 transition-all duration-700" 
-            style={{ width: `${(step / 2) * 100}%` }}
-          />
+    <OnboardingLayout currentStep={isFinished ? TOTAL_STEPS + 1 : currentStep} totalSteps={TOTAL_STEPS}>
+      {saveError && !isFinished && (
+        <div
+          role="alert"
+          className="mb-5 p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-start gap-2.5"
+        >
+          <AlertCircle className="w-4 h-4 shrink-0 text-red-500 mt-0.5" />
+          <p className="font-medium">{saveError}</p>
         </div>
+      )}
+      {isFinished ? (
+        <StepComplete
+          startupName={formData.startup?.startupName || "Your Startup"}
+          onGoToDashboard={() => router.replace("/dashboard")}
+        />
+      ) : (
+        <>
+          {currentStep === 1 && (
+            <Step1Founder
+              initialData={formData.founder}
+              onNext={handleStep1}
+              isSaving={isSaving}
+            />
+          )}
 
-        <div className="text-center mb-10 mt-4 shrink-0">
-          <span className="font-serif italic font-light text-3xl text-violet-600 mb-4 block">SS</span>
-          <h2 className="text-2xl md:text-3xl font-medium tracking-tight text-neutral-900 mb-2">
-            {step === 1 ? "Build your Startup Profile" : "Verify Extracted Data"}
-          </h2>
-          <p className="text-neutral-500">
-            {step === 1 ? "Upload your DPIIT certificate or Pitch Deck." : "Here is what we found. Make corrections if needed."}
-          </p>
-        </div>
+          {currentStep === 2 && (
+            <Step2Startup
+              initialData={formData.startup}
+              onBack={() => setCurrentStep(1)}
+              onNext={handleStep2}
+              isSaving={isSaving}
+            />
+          )}
 
-        <div className="flex-1 relative">
-          <AnimatePresence mode="wait">
-            
-            {step === 1 && (
-              <motion.div 
-                key="step1"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                className="space-y-4 absolute inset-0"
-              >
-                {!isExtracting ? (
-                  <>
-                    <button 
-                      onClick={handleUpload}
-                      className="w-full group bg-white border-2 border-dashed border-violet-200 hover:border-violet-600 rounded-2xl p-8 flex flex-col items-center gap-4 transition-all hover:bg-violet-50"
-                    >
-                      <div className="w-16 h-16 rounded-full bg-violet-100 text-violet-600 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                        <UploadCloud className="w-8 h-8" />
-                      </div>
-                      <div className="text-center">
-                        <h3 className="font-medium text-neutral-900 text-lg group-hover:text-violet-700 transition-colors">Click to upload or drag & drop</h3>
-                        <p className="text-sm text-neutral-500 mt-1">PDF, DOCX up to 10MB</p>
-                      </div>
-                    </button>
+          {currentStep === 3 && (
+            <Step3Legal
+              initialData={formData.startup}
+              onBack={() => setCurrentStep(2)}
+              onNext={handleStep3}
+              isSaving={isSaving}
+            />
+          )}
 
-                    <div className="flex items-center gap-4 my-6 opacity-60">
-                      <div className="flex-1 h-px bg-neutral-300" />
-                      <span className="text-xs uppercase font-semibold text-neutral-500">OR</span>
-                      <div className="flex-1 h-px bg-neutral-300" />
-                    </div>
+          {currentStep === 4 && (
+            <Step4Business
+              initialData={formData.startup}
+              onBack={() => setCurrentStep(3)}
+              onNext={handleStep4}
+              isSaving={isSaving}
+            />
+          )}
 
-                    <button 
-                      onClick={() => setStep(2)}
-                      className="w-full bg-white border border-neutral-200 hover:border-neutral-300 rounded-2xl p-5 flex items-center gap-4 transition-all hover:shadow-sm text-left"
-                    >
-                      <div className="w-12 h-12 rounded-full bg-neutral-100 text-neutral-600 flex items-center justify-center shrink-0">
-                        <CheckCircle2 className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <h3 className="font-medium text-neutral-900 text-lg">Use a Sample Startup</h3>
-                        <p className="text-sm text-neutral-500">Explore the dashboard with dummy data.</p>
-                      </div>
-                    </button>
-                  </>
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center space-y-4">
-                    <Loader2 className="w-10 h-10 text-violet-600 animate-spin" />
-                    <p className="font-medium text-neutral-900 animate-pulse">Extracting DPIIT Data...</p>
-                    <p className="text-sm text-neutral-500">Scanning for sector, stage, and financials.</p>
-                  </div>
-                )}
-              </motion.div>
-            )}
+          {currentStep === 5 && (
+            <Step5Documents
+              initialInterests={formData.startup?.assistanceInterests}
+              onBack={() => setCurrentStep(4)}
+              onFinish={handleStep5}
+              isSaving={isSaving}
+            />
+          )}
+        </>
+      )}
+    </OnboardingLayout>
+  );
+}
 
-            {step === 2 && (
-              <motion.div
-                key="step2"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="absolute inset-0 flex flex-col"
-              >
-                <div className="flex-1 space-y-4 overflow-y-auto pr-2 pb-6">
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-1 block">Company Name</label>
-                      <div className="bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-3 flex items-center gap-2">
-                        <Building2 className="w-4 h-4 text-neutral-400" />
-                        <span className="font-medium">TechNova AI Pvt Ltd</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-1 block">Incorporation Age</label>
-                      <div className="bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-3 font-medium">
-                        14 Months
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-1 block">Primary Sector</label>
-                    <div className="bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-3 font-medium">
-                      Artificial Intelligence / DeepTech
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-1 block">Revenue / Turnover</label>
-                    <div className="bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-3 font-medium flex justify-between">
-                      <span>₹50 Lakhs</span>
-                      <button className="text-xs text-violet-600 font-medium">Edit</button>
-                    </div>
-                  </div>
-
-                </div>
-                
-                <button 
-                  onClick={handleFinish}
-                  className="w-full py-4 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 shrink-0 shadow-md"
-                >
-                  Confirm & Generate Dashboard <ArrowRight className="w-5 h-5" />
-                </button>
-              </motion.div>
-            )}
-            
-          </AnimatePresence>
-        </div>
-      </div>
-    </div>
+export default function OnboardingPage() {
+  // Authenticated-only; completed users → /dashboard, guests → /login.
+  return (
+    <RequireAuth mode="onboarding" loadingMessage="Loading your profile setup...">
+      <OnboardingFlow />
+    </RequireAuth>
   );
 }

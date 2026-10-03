@@ -2,47 +2,42 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { 
-  Home, 
-  Search, 
-  CheckSquare, 
-  MoreHorizontal
-} from "lucide-react";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-
-const TABS = [
-  { label: "Home", href: "/dashboard", icon: Home },
-  { label: "Schemes", href: "/dashboard/schemes", icon: Search },
-  { label: "Plan", href: "/dashboard/plan", icon: CheckSquare },
-  { label: "More", href: "/dashboard/profile", icon: MoreHorizontal },
-];
+import { LayoutDashboard, Search, ListChecks, FileText, Bell } from "lucide-react";
+import { useCopilot } from "./CopilotProvider";
 
 export function BottomTabs() {
   const pathname = usePathname();
+  const { openCopilot } = useCopilot();
+
+  const tabs = [
+    { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
+    { label: "Schemes", href: "/dashboard/schemes", icon: Search },
+    { label: "Docs", href: "/documents", icon: FileText },
+    { label: "Plan", href: "/dashboard/plan", icon: ListChecks },
+    { label: "Alerts", href: "/dashboard/alerts", icon: Bell },
+  ];
+
+  const isActive = (href: string) =>
+    href === "/dashboard" ? pathname === href : pathname === href || pathname.startsWith(href + "/");
 
   return (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-neutral-200 z-50 flex items-center justify-around px-2 pb-safe">
-      {TABS.map((tab) => {
-        const isActive = pathname === tab.href || (tab.href !== "/dashboard" && pathname.startsWith(tab.href));
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-white/95 backdrop-blur-lg border-t border-neutral-200 flex items-center justify-around px-2 z-40">
+      {tabs.map((tab) => {
+        const active = isActive(tab.href);
+        const Icon = tab.icon;
         return (
           <Link
             key={tab.href}
             href={tab.href}
-            className={cn(
-              "flex flex-col items-center justify-center w-full h-full gap-1 transition-colors",
-              isActive ? "text-violet-600" : "text-neutral-500"
-            )}
+            className={`flex flex-col items-center justify-center w-full h-full gap-1 transition-colors ${
+              active ? "text-violet-600 font-semibold" : "text-neutral-500 hover:text-neutral-900"
+            }`}
           >
-            <tab.icon className={cn("w-5 h-5", isActive ? "fill-violet-600/20" : "")} />
-            <span className="text-[10px] font-medium">{tab.label}</span>
+            <Icon className={`w-5 h-5 ${active ? "text-violet-600" : "text-neutral-400"}`} />
+            <span className="text-[10px] tracking-tight">{tab.label}</span>
           </Link>
         );
       })}
-    </div>
+    </nav>
   );
 }
