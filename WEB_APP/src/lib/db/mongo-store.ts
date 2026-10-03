@@ -1,5 +1,6 @@
 import {
   User,
+  FounderProfile,
   StartupProfile,
   StartupDocumentRecord,
   DocumentChunk,
@@ -10,6 +11,7 @@ import {
   MessageRecord,
   ApplicationDraftRecord,
   ContactMessage,
+  SchemeMatch,
 } from "./models";
 import { models } from "./mongo-models";
 import { toPlain, toPlainList } from "./mongo";
@@ -76,6 +78,20 @@ export class MongoStore {
     await this.ready();
     await m.User.updateOne({ id: user.id }, { $set: user }, { upsert: true }).exec();
     return user;
+  }
+
+  // Founder Profile Methods
+  async getFounderProfileByUserId(userId: string): Promise<FounderProfile | null> {
+    const m = await models();
+    await this.ready();
+    return toPlain<FounderProfile>(await m.FounderProfile.findOne({ userId }).exec());
+  }
+
+  async saveFounderProfile(profile: FounderProfile): Promise<FounderProfile> {
+    const m = await models();
+    await this.ready();
+    await m.FounderProfile.updateOne({ id: profile.id }, { $set: profile }, { upsert: true }).exec();
+    return profile;
   }
 
   // Startup Profile Methods — strict ownership, no fallbacks.
@@ -246,5 +262,21 @@ export class MongoStore {
     await this.ready();
     await m.Contact.updateOne({ id: msg.id }, { $set: msg }, { upsert: true }).exec();
     return msg;
+  }
+  
+  // Scheme Matches
+  async getSchemeMatchesByUserId(userId: string): Promise<SchemeMatch[]> {
+    const m = await models();
+    await this.ready();
+    return toPlainList<SchemeMatch>(await m.SchemeMatch.find({ userId }).exec());
+  }
+
+  async saveSchemeMatches(userId: string, matches: SchemeMatch[]): Promise<void> {
+    const m = await models();
+    await this.ready();
+    await m.SchemeMatch.deleteMany({ userId }).exec();
+    if (matches.length > 0) {
+      await m.SchemeMatch.insertMany(matches);
+    }
   }
 }

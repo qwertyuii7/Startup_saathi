@@ -4,6 +4,7 @@ import { ArovaChatState, RetrievalPlan, ScoredChunk } from "./state";
 import { db } from "../../db/store";
 import { vectorStore } from "../../vector/vector-store";
 import { GroqService } from "../../ai/groq";
+import { TavilyService, TavilySearchResult } from "../../services/tavily";
 
 const DOC_TOP_K = 6;
 const GOV_TOP_K = 4;
@@ -61,8 +62,10 @@ async function planRetrieval(state: ArovaChatState): Promise<Partial<ArovaChatSt
     needsGov: true,
     needsSchemes: false,
     needsAnalysis: false,
+    needsWebSearch: false,
     docQuery: state.query,
     govQuery: state.query,
+    webSearchQuery: state.query,
   };
   try {
     const plan = await GroqService.generateJSON<RetrievalPlan>(
@@ -83,10 +86,12 @@ async function planRetrieval(state: ArovaChatState): Promise<Partial<ArovaChatSt
         "needsGov": "boolean",
         "needsSchemes": "boolean",
         "needsAnalysis": "boolean",
+        "needsWebSearch": "boolean (true if question asks for current rules, latest schemes, recent updates, or general web info not in docs)",
         "docTarget": "string (document filename hint from the question, or empty)",
         "schemeHint": "string (scheme name hint from the question, or empty)",
         "docQuery": "string (keyword-rich retrieval query for startup documents)",
-        "govQuery": "string (keyword-rich retrieval query for government scheme rules)"
+        "govQuery": "string (keyword-rich retrieval query for government scheme rules)",
+        "webSearchQuery": "string (search engine query if web search is needed)"
       }`
     );
     if (!plan || !Array.isArray(plan.intents)) return { plan: fallback };
@@ -97,10 +102,12 @@ async function planRetrieval(state: ArovaChatState): Promise<Partial<ArovaChatSt
         needsGov: !!plan.needsGov,
         needsSchemes: !!plan.needsSchemes,
         needsAnalysis: !!plan.needsAnalysis,
+        needsWebSearch: !!plan.needsWebSearch,
         docTarget: plan.docTarget || undefined,
         schemeHint: plan.schemeHint || undefined,
         docQuery: plan.docQuery || state.query,
         govQuery: plan.govQuery || state.query,
+        webSearchQuery: plan.webSearchQuery || state.query,
       },
     };
   } catch {
@@ -114,8 +121,10 @@ async function retrieve(state: ArovaChatState): Promise<Partial<ArovaChatState>>
   const tasks: Promise<unknown>[] = [];
   let docEvidence: ScoredChunk[] = [];
   let govEvidence: ScoredChunk[] = [];
+  let webEvidence: TavilySearchResult[] = [];
   let schemeContext = "";
   let analysisContext = "";
+  let searchedWeb = false;
 
   if (!plan || plan.needsDocs) {
     tasks.push(
@@ -202,8 +211,22 @@ async function retrieve(state: ArovaChatState): Promise<Partial<ArovaChatState>>
     );
   }
 
+  if (plan?.needsWebSearch) {
+    tasks.push(
+      (async () => {
+        try {
+          const res = await TavilyService.searchWeb(plan.webSearchQuery || state.query, 4);
+          webEvidence = res.results;
+          searchedWeb = true;
+        } catch (e) {
+          console.warn("Tavily search failed, continuing without web context:", e);
+        }
+      })()
+    );
+  }
+
   await Promise.all(tasks);
-  return { docEvidence, govEvidence, schemeContext, analysisContext };
+  return { docEvidence, govEvidence, webEvidence, schemeContext, analysisContext, searchedWeb };
 }
 
 // ── Node 4: generate grounded reply (Groq via LangChain messages) ──
@@ -241,6 +264,13 @@ async function generate(state: ArovaChatState): Promise<Partial<ArovaChatState>>
       "",
       "=== RETRIEVED OFFICIAL RULES ===",
       govLines.length > 0 ? govLines.join("\n") : "(no official clauses retrieved)",
+      "",
+      "=== WEB SEARCH RESULTS ===",
+      state.webEvidence?.length > 0
+        ? state.webEvidence
+            .map((w, i) => `[W${i + 1}] ${w.title} (${w.url}): "${w.content.slice(0, 500)}"`)
+            .join("\n")
+        : "(no web search performed/results)",
       state.schemeContext ? `\n=== SCHEME CONTEXT ===\n${state.schemeContext}\n` : "",
       state.analysisContext ? `\n=== ANALYSIS CONTEXT ===\n${state.analysisContext}\n` : "",
       `\n=== PAGE CONTEXT ===\n${pageLine}`,
@@ -282,6 +312,22 @@ async function generate(state: ArovaChatState): Promise<Partial<ArovaChatState>>
       ref: `Page ${r.chunk.pageNumber}`,
     });
   }
+  if (state.webEvidence && state.webEvidence.length > 0) {
+    for (const w of state.webEvidence) {
+      let domain = "";
+      try {
+        domain = new URL(w.url).hostname;
+      } catch (e) {}
+      citations.push({
+        type: "web",
+        title: w.title,
+        ref: domain || "Web Source",
+        url: w.url,
+        domain: domain,
+        snippet: w.content.slice(0, 100),
+      });
+    }
+  }
 
   return { reply: reply.trim(), citations };
 }
@@ -301,6 +347,8 @@ export function buildArovaChatGraph() {
       plan: { value: (x, y) => y ?? x, default: () => null },
       docEvidence: { value: (x, y) => y ?? x, default: () => [] },
       govEvidence: { value: (x, y) => y ?? x, default: () => [] },
+      webEvidence: { value: (x, y) => y ?? x, default: () => [] },
+      searchedWeb: { value: (x, y) => y ?? x, default: () => false },
       schemeContext: { value: (x, y) => y ?? x, default: () => "" },
       analysisContext: { value: (x, y) => y ?? x, default: () => "" },
       reply: { value: (x, y) => y ?? x, default: () => "" },

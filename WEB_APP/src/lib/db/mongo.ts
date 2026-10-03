@@ -6,13 +6,19 @@ let cached: typeof mongoose | null = null;
 /** Cached connection — safe to call from any API route / server path. */
 export async function getConnection(): Promise<typeof mongoose> {
   if (cached && cached.connection.readyState === 1) return cached;
-  if (!config.databaseUrl) {
+  // Use config.databaseUrl first, fall back to reading env directly
+  const url = config.databaseUrl || process.env.DATABASE_URL || "";
+  if (!url) {
     throw new Error("DATABASE_URL is not configured.");
   }
-  cached = await mongoose.connect(config.databaseUrl, {
-    serverSelectionTimeoutMS: 15000,
+  console.log("[db] Connecting to MongoDB...", url.substring(0, 30) + "...");
+  cached = await mongoose.connect(url, {
+    serverSelectionTimeoutMS: 30000,
     maxPoolSize: 10,
+    connectTimeoutMS: 30000,
+    socketTimeoutMS: 45000,
   });
+  console.log("[db] MongoDB connected:", cached.connection.host);
   return cached;
 }
 

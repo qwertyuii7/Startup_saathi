@@ -29,7 +29,7 @@ interface AskSchemeSenseDrawerProps {
 interface Message {
   role: "user" | "assistant";
   content: string;
-  citations?: { title: string; ref: string }[];
+  citations?: { type: string; title: string; ref: string; url?: string }[];
 }
 
 export function AskSchemeSenseDrawer({
@@ -79,14 +79,13 @@ export function AskSchemeSenseDrawer({
         })
       );
 
-      if (data.success && data.data) {
-        setConversationId(data.data.conversationId);
+      if (data.success && data.message) {
         setMessages(prev => [
           ...prev,
           {
             role: "assistant",
-            content: data.data.reply,
-            citations: data.data.citations,
+            content: data.message.content,
+            citations: data.message.sources,
           },
         ]);
       } else {
@@ -177,13 +176,25 @@ export function AskSchemeSenseDrawer({
                     <span className="text-[10px] uppercase font-bold text-neutral-400 block">
                       Evidentiary Citations:
                     </span>
-                    {msg.citations.map((c, idx) => (
-                      <div key={idx} className="flex items-center gap-1.5 text-[10px] text-violet-700 font-mono bg-white px-2 py-0.5 rounded border border-neutral-200">
-                        <FileText className="w-3 h-3 text-violet-500" />
-                        <span className="font-semibold">{c.title}</span>
-                        <span className="text-neutral-400">({c.ref})</span>
-                      </div>
-                    ))}
+                    {msg.citations.map((c, idx) => {
+                      const isWeb = c.type === "web";
+                      const Icon = isWeb ? Sparkles : FileText;
+                      const colorClass = isWeb ? "text-blue-500" : "text-violet-500";
+                      const wrapperClass = isWeb ? "text-blue-700 bg-blue-50 border-blue-200" : "text-violet-700 bg-white border-neutral-200";
+                      return (
+                        <div key={idx} className={`flex items-center gap-1.5 text-[10px] font-mono px-2 py-0.5 rounded border ${wrapperClass}`}>
+                          <Icon className={`w-3 h-3 shrink-0 ${colorClass}`} />
+                          {isWeb ? (
+                            <a href={c.url} target="_blank" rel="noopener noreferrer" className="font-semibold truncate hover:underline">
+                              {c.title}
+                            </a>
+                          ) : (
+                            <span className="font-semibold truncate">{c.title}</span>
+                          )}
+                          <span className="text-neutral-400 shrink-0">({c.ref})</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

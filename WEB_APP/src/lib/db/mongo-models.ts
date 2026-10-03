@@ -29,6 +29,25 @@ const UserSchema = baseSchema({
   lastLoginAt: { type: String },
 });
 
+const FounderProfileSchema = baseSchema({
+  userId: { type: String, required: true, index: true },
+  fullName: { type: String },
+  profilePhoto: { type: String },
+  email: { type: String },
+  phone: { type: String },
+  location: { type: String },
+  role: { type: String },
+  bio: { type: String },
+  linkedin: { type: String },
+  website: { type: String },
+  otherLinks: { type: [String] },
+  experience: { type: String },
+  education: { type: String },
+  skills: { type: [String] },
+  interests: { type: [String] },
+  updatedAt: { type: String },
+});
+
 const StartupSchema = baseSchema({
   userId: { type: String, required: true, index: true },
   founderName: { type: String },
@@ -200,6 +219,20 @@ const ContactSchema = baseSchema({
   createdAt: { type: String },
 });
 
+const SchemeMatchSchema = baseSchema({
+  userId: { type: String, required: true, index: true },
+  schemeId: { type: String, required: true, index: true },
+  matchScore: { type: Number },
+  eligibilityStatus: { type: String },
+  matchedCriteria: { type: [String], default: [] },
+  unmatchedCriteria: { type: [String], default: [] },
+  missingInformation: { type: [String], default: [] },
+  evidence: { type: M },
+  reason: { type: String },
+  createdAt: { type: String },
+  updatedAt: { type: String },
+});
+
 type AnyModel = Model<Record<string, unknown>>;
 
 async function model(name: string, schema: Schema): Promise<AnyModel> {
@@ -208,9 +241,10 @@ async function model(name: string, schema: Schema): Promise<AnyModel> {
 }
 
 export async function models() {
-  const [User, Startup, StartupDocument, Chunk, Scheme, Analysis, Incubator, Conversation, Message, Draft, Contact] =
+  const [User, FounderProfile, Startup, StartupDocument, Chunk, Scheme, Analysis, Incubator, Conversation, Message, Draft, Contact, SchemeMatch] =
     await Promise.all([
       model("User", UserSchema),
+      model("FounderProfile", FounderProfileSchema),
       model("Startup", StartupSchema),
       model("StartupDocument", DocumentSchema),
       model("Chunk", ChunkSchema),
@@ -221,6 +255,7 @@ export async function models() {
       model("Message", MessageSchema),
       model("Draft", DraftSchema),
       model("Contact", ContactSchema),
+      model("SchemeMatch", SchemeMatchSchema),
     ]);
-  return { User, Startup, StartupDocument, Chunk, Scheme, Analysis, Incubator, Conversation, Message, Draft, Contact };
+  return { User, FounderProfile, Startup, StartupDocument, Chunk, Scheme, Analysis, Incubator, Conversation, Message, Draft, Contact, SchemeMatch };
 }

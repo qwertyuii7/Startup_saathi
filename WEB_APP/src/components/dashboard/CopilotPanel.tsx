@@ -45,14 +45,13 @@ export function CopilotPanel() {
 
     try {
       const res = await api.chat.send(q, conversationId, undefined, buildPageContext(pathname));
-      if (res.success && res.data) {
-        setConversationId(res.data.conversationId);
+      if (res.success && res.message) {
         setMessages((prev) => [
           ...prev,
           {
             role: "assistant",
-            content: res.data.reply,
-            citations: res.data.citations,
+            content: res.message.content,
+            citations: res.message.sources as any,
           },
         ]);
       } else {
@@ -129,16 +128,28 @@ export function CopilotPanel() {
                       <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block">
                         Verified Sources & Evidence:
                       </span>
-                      {msg.citations.map((cit, idx) => (
-                        <div 
-                          key={idx} 
-                          className="flex items-center gap-1.5 text-[10px] text-violet-700 font-mono bg-white px-2 py-0.5 rounded border border-neutral-200"
-                        >
-                          <FileText className="w-3 h-3 text-violet-500 shrink-0" />
-                          <span className="font-semibold truncate">{cit.title}</span>
-                          <span className="text-neutral-400 shrink-0">({cit.ref})</span>
-                        </div>
-                      ))}
+                      {msg.citations.map((cit, idx) => {
+                        const isWeb = cit.type === "web";
+                        const Icon = isWeb ? Sparkles : FileText;
+                        const colorClass = isWeb ? "text-blue-500" : "text-violet-500";
+                        const wrapperClass = isWeb ? "text-blue-700 bg-blue-50 border-blue-200" : "text-violet-700 bg-white border-neutral-200";
+                        return (
+                          <div 
+                            key={idx} 
+                            className={`flex items-center gap-1.5 text-[10px] font-mono px-2 py-0.5 rounded border ${wrapperClass}`}
+                          >
+                            <Icon className={`w-3 h-3 shrink-0 ${colorClass}`} />
+                            {isWeb ? (
+                              <a href={cit.url} target="_blank" rel="noopener noreferrer" className="font-semibold truncate hover:underline">
+                                {cit.title}
+                              </a>
+                            ) : (
+                              <span className="font-semibold truncate">{cit.title}</span>
+                            )}
+                            <span className="text-neutral-400 shrink-0">({cit.ref})</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

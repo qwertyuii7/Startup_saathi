@@ -4,21 +4,61 @@ import { StartupDocumentRecord, DocumentChunk } from "../db/models";
 import { v4 as uuidv4 } from "uuid";
 
 export class DocumentProcessor {
-  // Process uploaded buffer/text, extract pages, chunk, and index into vector store.
-  // `storage` provenance is attached to the DB record when provided.
-  static async processDocument(
-    fileBuffer: Buffer | string,
-    fileName: string,
-    mimeType: string,
-    userId: string,
-    startupId: string,
-    docType: string,
-    storage?: { provider: "local" | "cloudinary"; url: string; publicId: string; sha256: string }
-  ): Promise<StartupDocumentRecord> {
+  static async createInitialRecord(params: {
+    userId: string;
+    startupId: string;
+    fileName: string;
+    mimeType: string;
+    docType: string;
+    byteLength: number;
+    storage?: { provider: "local" | "cloudinary"; url: string; publicId: string; sha256: string };
+  }): Promise<StartupDocumentRecord> {
     const docId = `doc_${uuidv4().substring(0, 8)}`;
-    let extractedText = "";
-    let pageCount = 1;
-    let pages: { pageNumber: number; text: string }[] = [];
+    const record: StartupDocumentRecord = {
+      id: docId,
+      userId: params.userId,
+      startupId: params.startupId,
+      name: params.fileName,
+      type: params.docType,
+      fileSize: params.byteLength >= 1024 * 1024
+          ? `${(params.byteLength / (1024 * 1024)).toFixed(1)} MB`
+          : `${(params.byteLength / 1024).toFixed(1)} KB`,
+      fileSizeBytes: params.byteLength,
+      mimeType: params.mimeType,
+      pageCount: 0,
+      status: "uploaded",
+      chunksCount: 0,
+      indexedChunks: 0,
+      isVerified: false,
+      uploadedAt: new Date().toISOString(),
+      storageProvider: params.storage?.provider,
+      storageUrl: params.storage?.url,
+      storagePublicId: params.storage?.publicId,
+      fileHash: params.storage?.sha256,
+      metadata: {},
+    };
+    await db.saveDocument(record);
+    return record;
+  }
+
+  // Process uploaded buffer/text asynchronously, track progress in DB
+  static async processDocumentAsync(
+    docRecord: StartupDocumentRecord,
+    fileBuffer: Buffer | string,
+  ): Promise<void> {
+    try {
+      docRecord.status = "extracting";
+      await db.saveDocument(docRecord);
+
+      let extractedText = "";
+      let pageCount = 1;
+      let pages: { pageNumber: number; text: string }[] = [];
+      const fileName = docRecord.name;
+      const mimeType = docRecord.mimeType;
+      const userId = docRecord.userId;
+      const startupId = docRecord.startupId;
+      const docType = docRecord.type;
+      const docId = docRecord.id;
 
     // Parse Text based on file type
     if (typeof fileBuffer === "string") {
@@ -98,7 +138,10 @@ export class DocumentProcessor {
       pages = [{ pageNumber: 1, text: extractedText }];
     }
 
-    // Chunking pipeline: ~400-500 words per chunk with 50-word overlap
+    docRecord.status = "chunking";
+    await db.saveDocument(docRecord);
+
+    // Chunking pipeline: ~150 words per chunk with 30-word overlap
     const chunksToInsert: Omit<DocumentChunk, "id" | "createdAt" | "vector">[] = [];
     let chunkCounter = 0;
 
@@ -131,11 +174,12 @@ export class DocumentProcessor {
 
     // Index chunks into Vector Store
     if (chunksToInsert.length > 0) {
+      docRecord.status = "indexing";
+      await db.saveDocument(docRecord);
       await vectorStore.addDocumentChunks(chunksToInsert);
     }
 
-    // Extract facts for metadata enrichment (keyword heuristic over the
-    // document's OWN extracted text — never invented content).
+    // Extract facts for metadata enrichment
     const haystack = extractedText;
     const isVerified =
       haystack.includes("DPIIT") ||
@@ -143,35 +187,35 @@ export class DocumentProcessor {
       haystack.includes("Companies Act") ||
       haystack.includes("GSTIN");
 
-    const byteLength = typeof fileBuffer === "string" ? Buffer.byteLength(fileBuffer, "utf-8") : fileBuffer.length;
-    const docRecord: StartupDocumentRecord = {
-      id: docId,
-      userId,
-      startupId,
-      name: fileName,
-      type: docType,
-      fileSize: byteLength >= 1024 * 1024 ? `${(byteLength / (1024 * 1024)).toFixed(1)} MB` : `${(byteLength / 1024).toFixed(1)} KB`,
-      fileSizeBytes: byteLength,
-      mimeType,
-      pageCount,
-      status: "processed",
-      extractedText: extractedText.substring(0, 1000), // excerpt
-      chunksCount: chunksToInsert.length,
-      indexedChunks: chunksToInsert.length,
-      isVerified,
-      uploadedAt: new Date().toISOString(),
-      storageProvider: storage?.provider,
-      storageUrl: storage?.url,
-      storagePublicId: storage?.publicId,
-      fileHash: storage?.sha256,
-      metadata: {
-        totalWords: extractedText.split(/\s+/).filter(Boolean).length,
-      },
+    docRecord.pageCount = pageCount;
+    docRecord.status = "analyzing";
+    docRecord.extractedText = extractedText.substring(0, 1000); // excerpt
+    docRecord.chunksCount = chunksToInsert.length;
+    docRecord.indexedChunks = chunksToInsert.length;
+    docRecord.isVerified = isVerified;
+    docRecord.metadata = {
+      totalWords: extractedText.split(/\s+/).filter(Boolean).length,
     };
 
     await db.saveDocument(docRecord);
-    return docRecord;
+    
+    // Now trigger background intelligence analysis
+    const { DocumentIntelligenceService } = await import("./intelligence");
+    const startup = await db.getStartupByUserId(userId);
+    if (startup) {
+      await DocumentIntelligenceService.analyzeDocument(docRecord, startup);
+    }
+    
+    docRecord.status = "processed";
+    await db.saveDocument(docRecord);
+    
+  } catch (error: any) {
+    console.error("Document processor background failed:", error);
+    docRecord.status = "failed";
+    docRecord.processingError = error.message || "Unknown error";
+    await db.saveDocument(docRecord);
   }
+}
 
   /** Persist a failed-upload record so the UI can show Retry. */
   static async createFailedRecord(params: {
@@ -198,7 +242,7 @@ export class DocumentProcessor {
       fileSizeBytes: params.byteLength,
       mimeType: params.mimeType,
       pageCount: 0,
-      status: "error",
+      status: "failed",
       chunksCount: 0,
       indexedChunks: 0,
       isVerified: false,

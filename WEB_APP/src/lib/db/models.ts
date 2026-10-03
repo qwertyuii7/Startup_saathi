@@ -17,17 +17,39 @@ export interface User {
   lastLoginAt: string;
 }
 
+export interface FounderProfile {
+  id: string; // usually maps directly to userId
+  userId: string;
+  fullName: string;
+  profilePhoto?: string;
+  email: string;
+  phone?: string;
+  location?: string;
+  role?: string;
+  bio?: string;
+  linkedin?: string;
+  website?: string;
+  otherLinks?: string[];
+  experience?: string;
+  education?: string;
+  skills?: string[];
+  interests?: string[];
+  updatedAt: string;
+}
+
 export interface StartupProfile {
   id: string;
   userId: string;
-  // Founder / Contact
+  
+  // Legacy / Basic Info
   founderName?: string;
   founderEmail?: string;
   founderPhone?: string;
-  founderRole?: "Founder" | "Co-Founder" | "CEO" | "CTO" | "Other" | string;
-  // Startup Basics
+  founderRole?: string;
   name: string;
   startupName?: string;
+  logo?: string;
+  tagline?: string;
   description?: string;
   summary?: string;
   industry: string;
@@ -35,40 +57,61 @@ export interface StartupProfile {
   stage: string;
   startupStage?: string;
   website?: string;
+
   // Legal & Registration
-  legalEntity?: "Private Limited" | "LLP" | "Partnership" | "Sole Proprietorship" | "Private Limited Company" | "Other" | string;
-  entityType?: "Private Limited Company" | "LLP" | "Partnership" | "Sole Proprietorship" | "Other" | string;
+  legalEntity?: string;
+  entityType?: string;
   foundedDate?: string;
   incorporationDate?: string;
   state: string;
   city: string;
-  dpiitStatus: boolean | "Yes" | "No" | "Applied / Pending" | "Not Sure";
+  dpiitStatus: boolean | string;
   dpiitNumber?: string;
   dpiitRecognitionNumber?: string;
+  gstStatus?: boolean | string;
+  gstNumber?: string;
+  cinNumber?: string;
+  ipInformation?: string;
+  certifications?: string[];
+  registrations?: string[];
+
   // Funding & Business
-  annualTurnover?: number; // in INR
+  annualTurnover?: number;
   turnoverRange?: string;
   turnoverDisplay?: string;
   employees?: number;
   fundingStage?: string;
-  fundingStatus?: "Bootstrapped" | "Angel" | "Seed" | "VC" | "Other" | "No Funding" | string;
+  fundingStatus?: string;
   fundingAmount?: number;
   revenue?: number;
-  revenueRange?: "Pre-revenue" | "Below ₹10L" | "₹10L–₹50L" | "₹50L–₹1Cr" | "₹1Cr–₹5Cr" | "₹5Cr+" | string;
+  revenueRange?: string;
   businessModel?: string;
   technologyCategory?: string;
   isWomenLed?: boolean;
-  previousGovernmentFunding?: "Yes" | "No" | "Not Sure" | boolean;
+  previousGovernmentFunding?: string | boolean;
   governmentFundingDetails?: string;
   assistanceInterests?: string[];
-  cinNumber?: string;
-  gstNumber?: string;
-  // Notification / engine preferences (persisted from Settings page)
+  incubatorInformation?: string;
+
+  // Product & Market (New Fields)
+  productDescription?: string;
+  targetMarket?: string;
+  customerSegment?: string;
+  problemStatement?: string;
+  solutionStatement?: string;
+  traction?: string;
+
   preferences?: {
     schemeNotifications?: boolean;
     documentAlerts?: boolean;
     matchThreshold?: number;
   };
+  
+  // Normalized facts extracted from documents
+  facts?: Record<string, any>;
+  factSources?: Record<string, { documentId: string; page?: number; text?: string; confidence?: number }>;
+  conflicts?: string[];
+  
   updatedAt: string;
 }
 
@@ -109,7 +152,7 @@ export interface StartupDocumentRecord {
   fileSizeBytes?: number;
   mimeType: string;
   pageCount: number;
-  status: "uploaded" | "processing" | "processed" | "error";
+  status: "uploaded" | "processing" | "extracting" | "classifying" | "chunking" | "embedding" | "indexing" | "analyzing" | "processed" | "needs_review" | "failed";
   extractedText?: string;
   chunksCount: number;
   indexedChunks?: number;
@@ -194,6 +237,24 @@ export interface AnalysisFinding {
     impact: string;
     resolutionAction: string;
   }[];
+}
+
+export interface SchemeMatch {
+  userId: string;
+  schemeId: string;
+  matchScore: number;
+  eligibilityStatus: "eligible" | "likely_eligible" | "needs_verification" | "not_eligible" | "insufficient_information";
+  matchedCriteria: string[];
+  unmatchedCriteria: string[];
+  missingInformation: string[];
+  evidence: {
+    documentId: string;
+    page: number;
+    text: string;
+  }[];
+  reason: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ActionItemRecord {

@@ -21,6 +21,7 @@ export interface StorageProvider {
     buffer: Buffer;
   }): Promise<StoredFile>;
   remove(publicId: string): Promise<void>;
+  get(publicId: string): Promise<Buffer>;
 }
 
 function sanitizeFileName(name: string): string {
@@ -60,6 +61,13 @@ class LocalStorageProvider implements StorageProvider {
     const path = await import("path");
     const absPath = path.join(process.cwd(), "public", "uploads", publicId);
     await fs.unlink(absPath).catch(() => undefined);
+  }
+
+  async get(publicId: string): Promise<Buffer> {
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    const absPath = path.join(process.cwd(), "public", "uploads", publicId);
+    return fs.readFile(absPath);
   }
 }
 
@@ -135,6 +143,14 @@ class CloudinaryStorageProvider implements StorageProvider {
   async remove(publicId: string): Promise<void> {
     const { uploader } = await this.client();
     await uploader.destroy(publicId, { resource_type: "raw" }).catch(() => undefined);
+  }
+
+  async get(publicId: string): Promise<Buffer> {
+    const url = `https://res.cloudinary.com/${config.storage.cloudinaryCloudName}/raw/upload/${publicId}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Could not fetch file from Cloudinary");
+    const arrayBuffer = await res.arrayBuffer();
+    return Buffer.from(arrayBuffer);
   }
 }
 

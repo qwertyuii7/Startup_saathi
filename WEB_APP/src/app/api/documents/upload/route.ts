@@ -152,18 +152,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Text extraction → chunking → embeddings → vector index.
+    // 2. Initial DB Record (Fast Path)
     try {
-      const doc = await DocumentProcessor.processDocument(
-        buffer,
-        fileName,
-        mimeType,
+      const docRecord = await DocumentProcessor.createInitialRecord({
         userId,
         startupId,
+        fileName,
+        mimeType,
         docType,
+        byteLength: buffer.length,
         storage
-      );
-      return NextResponse.json({ success: true, document: doc });
+      });
+      
+      // 3. Trigger background processing (Extraction -> Indexing -> Analysis)
+      // We don't await this so the upload request can close immediately.
+      DocumentProcessor.processDocumentAsync(docRecord, buffer).catch(err => {
+        console.error("Background document processing failed:", err);
+      });
+      
+      return NextResponse.json({ success: true, document: docRecord });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Document processing failed";
       console.error("Document processing error:", message);

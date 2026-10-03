@@ -193,11 +193,14 @@ export class ApiClient {
     ) => {
       return ApiClient.request<{
         success: boolean;
-        data: {
-          conversationId: string;
-          messageId: string;
-          reply: string;
-          citations: { type: "document" | "official_source"; title: string; ref: string; url?: string }[];
+        message: {
+          role: "assistant";
+          content: string;
+          sources: { type: string; title: string; ref: string; url?: string; domain?: string; snippet?: string }[];
+        };
+        metadata?: {
+          webSearchUsed: boolean;
+          searchProvider?: string;
         };
       }>("/api/ai/chat", {
         method: "POST",

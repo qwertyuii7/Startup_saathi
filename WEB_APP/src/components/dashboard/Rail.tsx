@@ -58,7 +58,7 @@ export function Rail() {
       </div>
 
       {/* Main Navigation List */}
-      <div className="flex-1 px-3 py-4 space-y-6 overflow-y-auto">
+      <div className="flex-1 px-3 py-4 space-y-6 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
         {/* Core Navigation */}
         <div className="space-y-1">
           <div className="hidden xl:block px-2.5 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400">

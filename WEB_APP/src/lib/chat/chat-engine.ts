@@ -17,11 +17,14 @@ export interface ChatResponsePayload {
   messageId: string;
   reply: string;
   citations: {
-    type: "document" | "official_source";
+    type: "document" | "official_source" | "web";
     title: string;
     ref: string;
     url?: string;
+    domain?: string;
+    snippet?: string;
   }[];
+  searchedWeb?: boolean;
 }
 
 export class ChatEngine {
@@ -74,14 +77,17 @@ export class ChatEngine {
       plan: null,
       docEvidence: [],
       govEvidence: [],
+      webEvidence: [],
       schemeContext: "",
       analysisContext: "",
+      searchedWeb: false,
       reply: "",
       citations: [],
       errors: [],
     })) as unknown as {
       reply: string;
       citations: ChatResponsePayload["citations"];
+      searchedWeb?: boolean;
       errors: string[];
     };
 
@@ -107,6 +113,7 @@ export class ChatEngine {
       messageId: assistantMsgId,
       reply: finalState.reply,
       citations: finalState.citations,
+      searchedWeb: finalState.searchedWeb,
     };
   }
 }

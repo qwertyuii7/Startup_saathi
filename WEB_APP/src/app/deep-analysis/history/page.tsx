@@ -100,7 +100,7 @@ export default function AnalysisHistoryPage() {
                       </td>
                       <td className="py-4 px-6 text-right space-x-2">
                         <Link
-                          href={`/deep-analysis/${item.id}/results`}
+                          href={`/deep-analysis/${item.id}`}
                           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-neutral-100 hover:bg-violet-50 text-neutral-700 hover:text-violet-700 text-xs font-semibold transition-all"
                         >
                           <span>View</span>

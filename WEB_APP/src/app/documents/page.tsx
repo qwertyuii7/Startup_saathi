@@ -27,7 +27,7 @@ interface Doc {
   fileSize: string;
   mimeType: string;
   pageCount: number;
-  status: "uploaded" | "processing" | "processed" | "error";
+  status: "uploaded" | "processing" | "extracting" | "chunking" | "indexing" | "analyzing" | "processed" | "error" | "failed";
   chunksCount: number;
   indexedChunks?: number;
   isVerified: boolean;
@@ -46,7 +46,7 @@ function statusMeta(status: Doc["status"]) {
       icon: CheckCircle2,
     };
   }
-  if (status === "error") {
+  if (status === "error" || status === "failed") {
     return {
       label: "Processing failed — Retry",
       classes: "bg-red-50 text-red-700 border-red-200",
@@ -58,6 +58,142 @@ function statusMeta(status: Doc["status"]) {
     classes: "bg-amber-50 text-amber-700 border-amber-200",
     icon: Clock,
   };
+}
+
+function DocumentItem({ 
+  initialDoc, 
+  onDelete, 
+  isDeleting 
+}: { 
+  initialDoc: Doc; 
+  onDelete: (id: string, name: string) => void;
+  isDeleting: boolean;
+}) {
+  const [doc, setDoc] = useState<Doc>(initialDoc);
+  const [pollData, setPollData] = useState<{ progress: number; message: string } | null>(null);
+
+  useEffect(() => {
+    setDoc(initialDoc);
+  }, [initialDoc]);
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    
+    const checkStatus = async () => {
+      try {
+        const res = await fetch(`/api/documents/${doc.id}/status`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            setDoc(prev => ({ ...prev, status: data.status }));
+            setPollData({ progress: data.progress, message: data.message });
+            
+            if (data.status === "processed" || data.status === "failed") {
+              clearInterval(interval);
+            }
+          }
+        }
+      } catch (err) {}
+    };
+
+    if (doc.status !== "processed" && doc.status !== "failed" && doc.status !== "error") {
+      interval = setInterval(checkStatus, 2500);
+      checkStatus(); // immediate check
+    }
+
+    return () => clearInterval(interval);
+  }, [doc.id, doc.status]);
+
+  const meta = statusMeta(doc.status);
+  const Icon = meta.icon;
+  const isProcessing = doc.status !== "processed" && doc.status !== "failed" && doc.status !== "error";
+
+  return (
+    <div className="p-5 rounded-2xl bg-white border border-neutral-200/90 shadow-2xs flex flex-col md:flex-row md:items-center gap-4">
+      <div className="flex items-start gap-3.5 flex-1 min-w-0">
+        <div className="w-10 h-10 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center shrink-0">
+          <FileText className="w-5 h-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-bold text-neutral-900 truncate">{doc.name}</h3>
+            {doc.isVerified && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                <CheckCircle2 className="w-3 h-3" />
+                <span>Key terms detected</span>
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-neutral-500 mt-0.5">
+            {doc.type} · {doc.fileSize} · {doc.pageCount} {doc.pageCount === 1 ? "page" : "pages"} ·{" "}
+            {doc.chunksCount} {doc.chunksCount === 1 ? "chunk" : "chunks"} indexed · Uploaded{" "}
+            {new Date(doc.uploadedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+          </p>
+          
+          <div className="mt-2">
+            {!isProcessing ? (
+              <div className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-lg border ${meta.classes}`}>
+                <Icon className="w-3.5 h-3.5" />
+                <span>{meta.label}</span>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5 w-full max-w-sm mt-1">
+                <div className="flex items-center gap-2 text-xs font-semibold text-neutral-700">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-violet-600" />
+                  <span>{pollData?.message || "Processing document..."}</span>
+                </div>
+                <div className="h-1.5 w-full bg-neutral-100 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-violet-600 transition-all duration-500" 
+                    style={{ width: `${pollData?.progress || 10}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {(doc.status === "error" || doc.status === "failed") && (
+            <div className="mt-1.5 flex items-center gap-2">
+              <p className="text-[11px] text-red-600">{doc.processingError || "Processing failed."}</p>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    setDoc(prev => ({ ...prev, status: "processing" }));
+                    await fetch(`/api/documents/${doc.id}/retry`, { method: "POST" });
+                  } catch (e) {}
+                }}
+                className="text-[10px] font-bold text-neutral-600 hover:text-neutral-900 bg-neutral-100 hover:bg-neutral-200 px-2 py-0.5 rounded transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {doc.storageUrl && (
+          <a
+            href={doc.storageUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-semibold transition-all"
+          >
+            <span>View file</span>
+          </a>
+        )}
+        <button
+          type="button"
+          onClick={() => onDelete(doc.id, doc.name)}
+          disabled={isDeleting}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold transition-all disabled:opacity-50"
+        >
+          {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+          <span>Delete</span>
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function DocumentsManager() {
@@ -111,7 +247,8 @@ function DocumentsManager() {
           );
         }
       }
-      await load();
+      // Do not wait for processing, fetch new list directly
+      setTimeout(load, 500);
     } catch (e: unknown) {
       setUploadError(e instanceof Error ? e.message : "Upload failed. Please try again.");
     } finally {
@@ -279,63 +416,14 @@ function DocumentsManager() {
             </p>
           </div>
         ) : (
-          docs.map((d) => {
-            const meta = statusMeta(d.status);
-            const Icon = meta.icon;
-            return (
-              <div key={d.id} className="p-5 rounded-2xl bg-white border border-neutral-200/90 shadow-2xs flex flex-col md:flex-row md:items-center gap-4">
-                <div className="flex items-start gap-3.5 flex-1 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center shrink-0">
-                    <FileText className="w-5 h-5" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-sm font-bold text-neutral-900 truncate">{d.name}</h3>
-                      {d.isVerified && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-                          <CheckCircle2 className="w-3 h-3" />
-                          <span>Key terms detected</span>
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-neutral-500 mt-0.5">
-                      {d.type} · {d.fileSize} · {d.pageCount} {d.pageCount === 1 ? "page" : "pages"} ·{" "}
-                      {d.chunksCount} {d.chunksCount === 1 ? "chunk" : "chunks"} indexed · Uploaded{" "}
-                      {new Date(d.uploadedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
-                    </p>
-                    <div className={`mt-2 inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-lg border ${meta.classes}`}>
-                      <Icon className="w-3.5 h-3.5" />
-                      <span>{meta.label}</span>
-                    </div>
-                    {d.status === "error" && d.processingError && (
-                      <p className="mt-1.5 text-[11px] text-red-600">{d.processingError}</p>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {d.storageUrl && (
-                    <a
-                      href={d.storageUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-semibold transition-all"
-                    >
-                      <span>View file</span>
-                    </a>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(d.id, d.name)}
-                    disabled={deletingId === d.id}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold transition-all disabled:opacity-50"
-                  >
-                    {deletingId === d.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                    <span>Delete</span>
-                  </button>
-                </div>
-              </div>
-            );
-          })
+          docs.map((d) => (
+            <DocumentItem
+              key={d.id}
+              initialDoc={d}
+              onDelete={handleDelete}
+              isDeleting={deletingId === d.id}
+            />
+          ))
         )}
       </div>
     </div>

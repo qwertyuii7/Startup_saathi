@@ -185,7 +185,23 @@ export function TopBar() {
                   className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-neutral-700 hover:bg-neutral-100 transition-colors"
                 >
                   <User className="w-4 h-4 text-neutral-400" />
+                  <span>Profile</span>
+                </Link>
+                <Link
+                  href="/dashboard/profile?section=startup"
+                  role="menuitem"
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-neutral-700 hover:bg-neutral-100 transition-colors"
+                >
+                  <Sparkles className="w-4 h-4 text-neutral-400" />
                   <span>Startup Profile</span>
+                </Link>
+                <Link
+                  href="/dashboard/profile?section=documents"
+                  role="menuitem"
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-neutral-700 hover:bg-neutral-100 transition-colors"
+                >
+                  <User className="w-4 h-4 text-neutral-400" />
+                  <span>Documents</span>
                 </Link>
                 <Link
                   href="/dashboard/settings"

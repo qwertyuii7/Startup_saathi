@@ -1,4 +1,5 @@
 import type { DocumentChunk } from "../../db/models";
+import type { TavilySearchResult } from "../../services/tavily";
 
 export interface ChatPageContext {
   pathname?: string;
@@ -18,6 +19,7 @@ export interface RetrievalPlan {
   needsGov: boolean;
   needsSchemes: boolean;
   needsAnalysis: boolean;
+  needsWebSearch: boolean;
   /** Filename/document hint extracted from the query, if any. */
   docTarget?: string;
   /** Scheme name hint extracted from the query, if any. */
@@ -25,6 +27,7 @@ export interface RetrievalPlan {
   /** Rewritten retrieval queries. */
   docQuery: string;
   govQuery: string;
+  webSearchQuery?: string;
 }
 
 export interface ScoredChunk {
@@ -47,15 +50,19 @@ export interface ArovaChatState {
   plan: RetrievalPlan | null;
   docEvidence: ScoredChunk[];
   govEvidence: ScoredChunk[];
+  webEvidence: TavilySearchResult[];
   schemeContext: string;
   analysisContext: string;
+  searchedWeb?: boolean;
   // Output
   reply: string;
   citations: {
-    type: "document" | "official_source";
+    type: "document" | "official_source" | "web";
     title: string;
     ref: string;
     url?: string;
+    domain?: string;
+    snippet?: string;
   }[];
   errors: string[];
 }

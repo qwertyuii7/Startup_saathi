@@ -90,7 +90,15 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: response,
+      message: {
+        role: "assistant",
+        content: response.reply,
+        sources: response.citations,
+      },
+      metadata: {
+        webSearchUsed: !!response.searchedWeb,
+        searchProvider: response.searchedWeb ? "tavily" : undefined,
+      }
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to process chat query";

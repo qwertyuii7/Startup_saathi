@@ -1,5 +1,6 @@
 import {
   User,
+  FounderProfile,
   StartupProfile,
   StartupDocumentRecord,
   DocumentChunk,
@@ -10,16 +11,19 @@ import {
   MessageRecord,
   ApplicationDraftRecord,
   ContactMessage,
+  SchemeMatch,
 } from "./models";
 
 // Global In-Memory Store (development fallback + reference-data source).
 // Exported so the MongoDB backend can seed from the same definitions.
 export class SchemeSenseStore {
   private users: Map<string, User> = new Map();
+  private founders: Map<string, FounderProfile> = new Map();
   private startups: Map<string, StartupProfile> = new Map();
   private documents: Map<string, StartupDocumentRecord> = new Map();
   private chunks: Map<string, DocumentChunk> = new Map();
   private schemes: Map<string, GovernmentScheme> = new Map();
+  private schemeMatches: Map<string, SchemeMatch[]> = new Map();
   private analyses: Map<string, DeepAnalysisRecord> = new Map();
   private incubators: Map<string, IncubatorRecord> = new Map();
   private conversations: Map<string, ConversationRecord> = new Map();
@@ -321,6 +325,17 @@ export class SchemeSenseStore {
     return user;
   }
 
+  // Founder Profile Methods
+  async getFounderProfileByUserId(userId: string): Promise<FounderProfile | null> {
+    return this.founders.get(userId) || null;
+  }
+
+  async saveFounderProfile(profile: FounderProfile): Promise<FounderProfile> {
+    this.founders.set(profile.userId, profile);
+    this.founders.set(profile.id, profile);
+    return profile;
+  }
+
   // Startup Profile Methods
   // Strict ownership: NEVER fall back to another user's startup.
   async getStartupByUserId(userId: string): Promise<StartupProfile | null> {
@@ -441,6 +456,15 @@ export class SchemeSenseStore {
   async saveContactMessage(msg: ContactMessage): Promise<ContactMessage> {
     this.contactMessages.set(msg.id, msg);
     return msg;
+  }
+  
+  // Scheme Matches
+  async getSchemeMatchesByUserId(userId: string): Promise<SchemeMatch[]> {
+    return this.schemeMatches.get(userId) || [];
+  }
+
+  async saveSchemeMatches(userId: string, matches: SchemeMatch[]): Promise<void> {
+    this.schemeMatches.set(userId, matches);
   }
 }
 

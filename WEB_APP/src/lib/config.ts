@@ -13,29 +13,29 @@ export const config = {
 
   groq: {
     apiKey: process.env.GROQ_API_KEY || "",
-    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
-    fastModel: process.env.GROQ_FAST_MODEL || "openai/gpt-oss-20b",
+    model: process.env.GROQ_MODEL || "llama-3.1-8b-instant",
+    fastModel: process.env.GROQ_FAST_MODEL || "llama-3.1-8b-instant",
   },
 
   vector: {
-    embeddingModel: process.env.EMBEDDING_MODEL || "text-embedding-3-small",
+    embeddingModel: process.env.EMBEDDING_MODEL || "Xenova/all-MiniLM-L6-v2",
     url: process.env.VECTOR_DATABASE_URL || "",
     apiKey: process.env.VECTOR_DATABASE_API_KEY || "",
   },
 
+  qdrant: {
+    url: process.env.QDRANT_URL || "http://localhost:6333",
+    apiKey: process.env.QDRANT_API_KEY || "",
+    collection: process.env.QDRANT_COLLECTION || "arova_documents",
+  },
+
   embeddings: {
-    // "local" (default, offline-safe hashed embeddings) or
-    // "remote" (OpenAI-compatible embeddings endpoint).
-    provider: process.env.EMBEDDING_PROVIDER || "local",
-    apiUrl: process.env.EMBEDDING_API_URL || "",
-    apiKey: process.env.EMBEDDING_API_KEY || "",
-    model: process.env.EMBEDDING_MODEL || "text-embedding-3-small",
-    dimensions: Number(process.env.EMBEDDING_DIMENSIONS || "128"),
+    provider: process.env.EMBEDDING_PROVIDER || "local", 
+    model: process.env.EMBEDDING_MODEL || "Xenova/all-MiniLM-L6-v2",
+    dimensions: Number(process.env.EMBEDDING_DIMENSIONS || "384"),
   },
 
   storage: {
-    // "local" (default — files under public/uploads) or
-    // "cloudinary" (requires CLOUDINARY_* vars below).
     provider: process.env.STORAGE_PROVIDER || "local",
     cloudinaryCloudName: process.env.CLOUDINARY_CLOUD_NAME || "",
     cloudinaryApiKey: process.env.CLOUDINARY_API_KEY || "",
