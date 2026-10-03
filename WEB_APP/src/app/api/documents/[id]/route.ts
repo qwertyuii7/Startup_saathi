@@ -33,8 +33,6 @@ export async function DELETE(
     }
 
     // Remove the stored file (cloud or local) plus the DB record.
-    // Vector chunks for this document are user-scoped and unreachable
-    // afterwards; the record deletion is the source of truth for the UI.
     if (doc.storagePublicId) {
       try {
         const { getStorageProvider } = await import("@/lib/storage/provider");
@@ -42,6 +40,14 @@ export async function DELETE(
       } catch (e: unknown) {
         console.warn("Stored file cleanup warning:", e instanceof Error ? e.message : e);
       }
+    }
+
+    // Remove indexed vectors so deleted docs stop grounding answers.
+    try {
+      const { vectorStore } = await import("@/lib/vector/vector-store");
+      await vectorStore.deleteDocumentVectors(id);
+    } catch (e: unknown) {
+      console.warn("Vector cleanup warning:", e instanceof Error ? e.message : e);
     }
 
     await db.deleteDocument(id);

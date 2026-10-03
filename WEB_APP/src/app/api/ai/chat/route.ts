@@ -95,6 +95,11 @@ export async function POST(req: NextRequest) {
         content: response.reply,
         sources: response.citations,
       },
+      actions: response.actions,
+      citations: response.citations,
+      relatedEntities: [],
+      evidence: [],
+      status: "ok",
       metadata: {
         webSearchUsed: !!response.searchedWeb,
         searchProvider: response.searchedWeb ? "tavily" : undefined,

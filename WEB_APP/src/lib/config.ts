@@ -13,8 +13,8 @@ export const config = {
 
   groq: {
     apiKey: process.env.GROQ_API_KEY || "",
-    model: process.env.GROQ_MODEL || "llama-3.1-8b-instant",
-    fastModel: process.env.GROQ_FAST_MODEL || "llama-3.1-8b-instant",
+    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+    fastModel: process.env.GROQ_FAST_MODEL || "openai/gpt-oss-20b",
   },
 
   vector: {
@@ -41,5 +41,9 @@ export const config = {
     cloudinaryApiKey: process.env.CLOUDINARY_API_KEY || "",
     cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET || "",
     maxUploadMb: Number(process.env.MAX_UPLOAD_MB || "15"),
+  },
+
+  tavily: {
+    apiKey: process.env.TAVILY_API_KEY || "",
   },
 };

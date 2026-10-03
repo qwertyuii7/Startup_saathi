@@ -70,6 +70,17 @@ export interface AnalysisRecord {
     applicationStatus: string;
     websiteUrl: string;
   }[];
+  executiveSummary?: string;
+  readiness?: {
+    totalRequirements: number;
+    supported: number;
+    needsVerification: number;
+    missing: number;
+    score: number;
+    formula: string;
+  };
+  risks?: { title: string; evidence: string; schemeId?: string }[];
+  opportunities?: { title: string; reason: string; schemeId?: string }[];
 }
 
 /** Fetch a single persisted analysis by id (401/403/404 surfaced as errors). */
