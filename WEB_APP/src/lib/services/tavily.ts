@@ -1,16 +1,70 @@
 import { config } from "../config";
 
+export type WebSourceType = "official" | "official_scheme" | "gazette" | "incubator" | "reputable" | "web";
+
 export interface TavilySearchResult {
   title: string;
   url: string;
   content: string;
   score: number;
   publishedDate?: string;
+  domain?: string;
+  sourceType?: WebSourceType;
+  favicon?: string;
 }
 
 export interface TavilySearchResponse {
   query: string;
   results: TavilySearchResult[];
+  searchedAt: string;
+}
+
+const OFFICIAL_PATTERNS: { re: RegExp; type: WebSourceType }[] = [
+  { re: /\.gov\.in(\/|$)/i, type: "official" },
+  { re: /\.nic\.in(\/|$)/i, type: "official" },
+  { re: /startupindia\.gov\.in/i, type: "official_scheme" },
+  { re: /dpiit\.gov\.in/i, type: "official_scheme" },
+  { re: /mygov\.in/i, type: "official" },
+  { re: /india\.gov\.in/i, type: "official" },
+  { re: /\.edu(\/|$)|iitk?\.ac\.in|iit.*\.ac\.in|nit.*\.ac\.in/i, type: "incubator" },
+  { re: /gazette|egazette|notification.*\.pdf|\.pdf(\?|$)/i, type: "gazette" },
+];
+
+const REPUTABLE = /yourstory|inc42|economictimes|business-standard| Hindu |livemint|moneycontrol|pib\.gov\.in/i;
+
+export function domainOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+export function faviconFor(domain: string): string {
+  return domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : "";
+}
+
+export function classifySource(url: string, title = ""): WebSourceType {
+  for (const p of OFFICIAL_PATTERNS) {
+    if (p.re.test(url) || (p.type === "gazette" && p.re.test(title))) return p.type;
+  }
+  if (REPUTABLE.test(`${url} ${title}`)) return "reputable";
+  return "web";
+}
+
+/** Official-first ranking (§6): gov > scheme pages > gazettes/PDFs > incubator/edu > reputable > general. */
+export function rankResults(results: TavilySearchResult[]): TavilySearchResult[] {
+  const weight: Record<WebSourceType, number> = {
+    official: 0,
+    official_scheme: 1,
+    gazette: 2,
+    incubator: 3,
+    reputable: 4,
+    web: 5,
+  };
+  return [...results].sort(
+    (a, b) => weight[a.sourceType || "web"] - weight[b.sourceType || "web"] || (b.score || 0) - (a.score || 0)
+  );
 }
 
 export class TavilyService {
@@ -20,21 +74,13 @@ export class TavilyService {
       throw new Error("Missing TAVILY_API_KEY environment variable");
     }
 
-    // Include official domains to prioritize authoritative sources
-    const includeDomains = [
-      "gov.in",
-      "nic.in",
-      "mygov.in",
-      "startupindia.gov.in",
-    ];
-
     const body = {
       api_key: apiKey,
       query,
-      search_depth: "basic",
+      search_depth: "advanced",
       include_answer: false,
-      include_domains: includeDomains,
-      max_results: limit,
+      include_raw_content: false,
+      max_results: Math.min(Math.max(limit, 3), 10),
     };
 
     const controller = new AbortController();
@@ -61,15 +107,25 @@ export class TavilyService {
 
       const data = await res.json();
 
+      const mapped: TavilySearchResult[] = (data.results || []).map((r: any) => {
+        const url: string = r.url || "";
+        const domain = domainOf(url);
+        return {
+          title: r.title || domain || "Web source",
+          url,
+          content: r.content || "",
+          score: typeof r.score === "number" ? r.score : 0,
+          publishedDate: r.published_date,
+          domain,
+          sourceType: classifySource(url, r.title || ""),
+          favicon: faviconFor(domain),
+        };
+      });
+
       return {
         query: data.query || query,
-        results: (data.results || []).map((r: any) => ({
-          title: r.title,
-          url: r.url,
-          content: r.content,
-          score: r.score,
-          publishedDate: r.published_date,
-        })),
+        results: rankResults(mapped.filter((r) => r.url.startsWith("http"))),
+        searchedAt: new Date().toISOString(),
       };
     } finally {
       clearTimeout(timeoutId);

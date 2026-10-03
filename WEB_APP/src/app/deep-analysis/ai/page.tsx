@@ -1,19 +1,28 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useWorkspaceAnalysis } from "@/lib/analysis-context";
 import { AnalysisPageHeader } from "@/components/deep-analysis/AnalysisPageHeader";
-import { Loader2, Sparkles, Send, BrainCircuit, Lightbulb, Target, AlertTriangle, FileText, RefreshCw } from "lucide-react";
+import { Loader2, Sparkles, Send, BrainCircuit, Lightbulb, Target, AlertTriangle, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { buildPageContext } from "@/lib/chat-page-context";
+import { ArovaMessage } from "@/components/arova/ArovaMessage";
+import { ResearchStatus, type ResearchState } from "@/components/arova/citations";
+import type { ArovaStructured, ArovaRelatedEntity, ArovaCitation } from "@/lib/chat/structured";
+import { parseStructured } from "@/lib/chat/structured";
 
 interface ChatMsg {
+  id?: string;
   role: "user" | "assistant" | "system";
   text: string;
-  citations?: { type: string; title: string; ref: string; url?: string }[];
+  citations?: ArovaCitation[];
   actions?: { type: string; label: string; route: string; entityId?: string }[];
+  structured?: ArovaStructured | null;
+  related?: ArovaRelatedEntity[];
+  followUps?: string[];
+  research?: ResearchState | null;
+  streaming?: boolean;
   isError?: boolean;
 }
 
@@ -39,10 +48,11 @@ export default function AIIntelligenceWorkspace() {
       api.chat.getHistory(stored).then((res) => {
         if (res.success && res.messages?.length) {
           setMessages(
-            res.messages.map((m: { role: string; content: string; citations?: ChatMsg["citations"] }) => ({
+            res.messages.map((m: { role: string; content: string; citations?: ChatMsg["citations"]; structured?: ArovaStructured | null }) => ({
               role: m.role === "user" ? "user" : "assistant",
               text: m.content,
               citations: m.citations,
+              structured: m.structured || null,
             }))
           );
         }
@@ -73,30 +83,72 @@ export default function AIIntelligenceWorkspace() {
     const q = input.trim();
     if (!q || sending) return;
 
-    setMessages((prev) => [...prev, { role: "user", text: q }]);
+    const assistantIdxRef = { current: -1 };
+    setMessages((prev) => {
+      assistantIdxRef.current = prev.length + 1;
+      return [
+        ...prev,
+        { role: "user", text: q },
+        { role: "assistant", text: "", streaming: true, research: { stage: "understanding", label: "Understanding your question" } },
+      ];
+    });
     setInput("");
     setSending(true);
 
+    const patchAssistant = (patch: Partial<ChatMsg>) =>
+      setMessages((prev) => {
+        const idx = assistantIdxRef.current;
+        if (idx < 0 || idx >= prev.length) return prev;
+        const next = [...prev];
+        next[idx] = { ...next[idx], ...patch };
+        return next;
+      });
+
     try {
       const pageContext = buildPageContext(pathname, { analysisId: analysis.id });
-      const res = await api.chat.send(q, conversationId, undefined, pageContext);
-      const content = res.message?.content || "I couldn't generate a grounded answer. Please try again.";
-      const citations = res.citations || res.message?.sources || [];
-      const actions = res.actions || [];
-      setMessages((prev) => [...prev, { role: "assistant", text: content, citations, actions }]);
-      // Persist conversation id from history endpoint ordering: re-list to capture new conv.
-      const list = await api.chat.listConversations().catch(() => null);
-      const latest = list?.conversations?.[0]?.id;
-      if (latest) {
-        setConversationId(latest);
-        try { localStorage.setItem("arova_conversation_id", latest); } catch { /* ignore */ }
-      }
+      let streamContent = "";
+      await api.chat.stream(q, {
+        conversationId,
+        pageContext,
+        onEvent: (event, data) => {
+          if (event === "metadata") {
+            if (data.conversationId) {
+              setConversationId(data.conversationId);
+              try { localStorage.setItem("arova_conversation_id", data.conversationId); } catch { /* ignore */ }
+            }
+          } else if (event === "status") {
+            patchAssistant({ research: { stage: data.stage, label: data.label, sources: data.sources } });
+          } else if (event === "citations") {
+            patchAssistant({ citations: data as ArovaCitation[] });
+          } else if (event === "token") {
+            streamContent += typeof data === "string" ? data : "";
+            patchAssistant({ text: streamContent, research: null });
+          } else if (event === "structured") {
+            const s = parseStructured(data);
+            patchAssistant({
+              structured: s,
+              citations: (s?.citations || []) as ArovaCitation[],
+              actions: s?.actions || [],
+              related: s?.relatedEntities || [],
+              followUps: s?.followUps || [],
+            });
+          } else if (event === "followups") {
+            patchAssistant({ followUps: Array.isArray(data) ? data : [] });
+          } else if (event === "end") {
+            patchAssistant({ streaming: false, research: null });
+          } else if (event === "error") {
+            throw new Error(data?.message || "Streaming failed");
+          }
+        },
+      });
+      patchAssistant({ streaming: false, research: null });
     } catch (err: unknown) {
-      setMessages((prev) => [...prev, {
-        role: "assistant",
-        text: err instanceof Error ? `Unable to reach AROVA: ${err.message}` : "Unable to reach AROVA. Please retry.",
+      patchAssistant({
+        streaming: false,
+        research: null,
+        text: err instanceof Error ? `I couldn't access live sources just now (${err.message}). Please try again in a moment.` : "Unable to reach AROVA. Please retry.",
         isError: true,
-      }]);
+      });
     } finally {
       setSending(false);
     }
@@ -157,58 +209,61 @@ export default function AIIntelligenceWorkspace() {
         {/* Right Side: Chat Interface */}
         <div className="flex-1 bg-white border border-neutral-200 rounded-2xl shadow-sm flex flex-col overflow-hidden">
 
-          <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 bg-neutral-50/50">
+          <div className="flex-1 overflow-y-auto p-6 bg-neutral-50/50">
+            <div className="flex flex-col gap-6 max-w-[44rem] mx-auto w-full">
             {messages.map((msg, i) => (
-              <div key={i} className={`flex max-w-[85%] ${msg.role === 'user' ? 'ml-auto justify-end' : 'mr-auto justify-start'}`}>
+              msg.role === "system" ? (
+                <div key={i} className="text-center text-[11px] text-neutral-400 font-medium">{msg.text}</div>
+              ) : (
+              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} min-w-0`}>
                 {msg.role !== 'user' && (
-                  <div className="w-8 h-8 rounded-xl bg-violet-600 flex items-center justify-center shrink-0 mr-3 shadow-md">
+                  <div className="w-8 h-8 rounded-full bg-violet-600 flex items-center justify-center shrink-0 mr-3 mt-0.5">
                     <Sparkles className="w-4 h-4 text-white" />
                   </div>
                 )}
 
-                <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                  msg.role === 'user'
-                    ? 'bg-neutral-900 text-white rounded-tr-sm'
-                    : msg.isError
-                      ? 'bg-red-50 border border-red-200 text-red-800 rounded-tl-sm'
-                      : 'bg-white border border-neutral-200 text-neutral-800 rounded-tl-sm'
-                }`}>
-                  <div className="whitespace-pre-line">{msg.text}</div>
-                  {msg.citations && msg.citations.length > 0 && (
-                    <div className="mt-3 pt-2 border-t border-neutral-200 space-y-1">
-                      <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block">Evidence</span>
-                      {msg.citations.slice(0, 4).map((c, ci) => (
-                        <div key={ci} className="flex items-center gap-1.5 text-[11px] text-neutral-600">
-                          <FileText className="w-3 h-3 shrink-0 text-violet-500" />
-                          <span className="font-semibold truncate">{c.title}</span>
-                          <span className="text-neutral-400 shrink-0">({c.ref})</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {msg.actions && msg.actions.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {msg.actions.slice(0, 4).map((a, ai) => (
-                        <Link key={ai} href={a.route} className="px-2.5 py-1 text-[11px] font-bold bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 rounded-lg transition-colors">
-                          {a.label}
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                {msg.role === "user" ? (
+                  <div className="max-w-[85%] bg-neutral-900 text-white rounded-2xl rounded-br-md px-4 py-2.5 text-sm leading-relaxed">
+                    <div className="whitespace-pre-line">{msg.text}</div>
+                  </div>
+                ) : msg.isError ? (
+                  <div className="bg-red-50 border border-red-200 text-red-800 rounded-2xl rounded-tl-md px-4 py-3 text-sm leading-relaxed">
+                    <div className="whitespace-pre-line">{msg.text}</div>
+                  </div>
+                ) : msg.research && !msg.text && (!msg.citations || msg.citations.length === 0) ? (
+                  <ResearchStatus state={msg.research} />
+                ) : (
+                  <div className="flex-1 min-w-0">
+                    <ArovaMessage
+                      structured={msg.structured}
+                      markdown={msg.text}
+                      citations={(msg.citations || []) as ArovaCitation[]}
+                      actions={msg.actions}
+                      related={msg.related}
+                      followUps={msg.followUps}
+                      onFollowUp={(fq) => { setInput(fq); }}
+                      streaming={msg.streaming}
+                    />
+                    {msg.research && (msg.text || (msg.citations && msg.citations.length > 0)) ? (
+                      <div className="mt-1"><ResearchStatus state={msg.research} /></div>
+                    ) : null}
+                  </div>
+                )}
               </div>
+              )
             ))}
-            {sending && (
-              <div className="flex mr-auto justify-start">
-                <div className="w-8 h-8 rounded-xl bg-violet-600 flex items-center justify-center shrink-0 mr-3 shadow-md">
+            {sending && messages[messages.length - 1]?.role === "user" && (
+              <div className="flex justify-start">
+                <div className="w-8 h-8 rounded-full bg-violet-600 flex items-center justify-center shrink-0 mr-3">
                   <Loader2 className="w-4 h-4 text-white animate-spin" />
                 </div>
-                <div className="p-4 rounded-2xl bg-white border border-neutral-200 text-sm text-neutral-500 flex items-center gap-2">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Retrieving evidence and reasoning…
+                <div className="text-sm text-neutral-500 flex items-center gap-2">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Researching…
                 </div>
               </div>
             )}
             <div ref={bottomRef} />
+            </div>
           </div>
 
           <div className="p-4 bg-white border-t border-neutral-200 shrink-0">

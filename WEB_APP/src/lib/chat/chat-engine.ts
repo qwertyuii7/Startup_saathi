@@ -2,6 +2,7 @@ import { db } from "../db/store";
 import { v4 as uuidv4 } from "uuid";
 import { arovaChatAgent } from "../agents/arova-chat/graph";
 import type { ChatPageContext } from "../agents/arova-chat/state";
+import type { ArovaStructured } from "./structured";
 
 export interface ChatRequestOptions {
   userId: string;
@@ -23,6 +24,7 @@ export interface ChatResponsePayload {
   conversationId: string;
   messageId: string;
   reply: string;
+  structured: ArovaStructured | null;
   citations: {
     type: "document" | "official_source" | "web";
     title: string;
@@ -30,8 +32,16 @@ export interface ChatResponsePayload {
     url?: string;
     domain?: string;
     snippet?: string;
+    sourceName?: string;
+    sourceType?: string;
+    favicon?: string;
+    documentId?: string;
+    page?: number;
+    section?: string;
+    relevance?: number;
   }[];
   actions: ChatAction[];
+  relatedEntities: { kind: string; id?: string; label: string; route: string }[];
   searchedWeb?: boolean;
 }
 
@@ -90,10 +100,12 @@ export class ChatEngine {
       analysisContext: "",
       searchedWeb: false,
       reply: "",
+      structured: null,
       citations: [],
       errors: [],
     })) as unknown as {
       reply: string;
+      structured: ArovaStructured | null;
       citations: ChatResponsePayload["citations"];
       searchedWeb?: boolean;
       errors: string[];
@@ -104,19 +116,7 @@ export class ChatEngine {
       throw new Error(`Assistant failed: ${reason}. Please try again.`);
     }
 
-    // 4. Save Assistant Message with provenance citations
-    const assistantMsgId = `msg_${uuidv4().substring(0, 8)}`;
-    await db.saveMessage({
-      id: assistantMsgId,
-      conversationId: convId,
-      userId,
-      role: "assistant",
-      content: finalState.reply,
-      citations: finalState.citations,
-      createdAt: new Date().toISOString(),
-    });
-
-    // 5. Cross-page actions so chat connects to the workspace.
+    // 4. Cross-page actions so chat connects to the workspace.
     const analysisId = pageContext.analysisId;
     const actions: ChatAction[] = [
       { type: "open_eligibility", label: "Open Eligibility", route: `/deep-analysis/eligibility${analysisId ? `?id=${analysisId}` : ""}` },
@@ -133,12 +133,39 @@ export class ChatEngine {
       actions.push({ type: "open_documents", label: "Upload Document", route: `/deep-analysis/documents${analysisId ? `?id=${analysisId}` : ""}` });
     }
 
+    const structured: ArovaStructured | null = finalState.structured
+      ? { ...finalState.structured, actions, citations: finalState.citations }
+      : null;
+
+    // 5. Save Assistant Message with provenance citations (+ structured UI payload)
+    const assistantMsgId = `msg_${uuidv4().substring(0, 8)}`;
+    await db.saveMessage({
+      id: assistantMsgId,
+      conversationId: convId,
+      userId,
+      role: "assistant",
+      content: finalState.reply,
+      citations: finalState.citations,
+      structured: structured || undefined,
+      createdAt: new Date().toISOString(),
+    });
+
+    const relatedEntities =
+      finalState.structured?.relatedEntities.map((r) => ({
+        kind: r.kind,
+        id: r.id,
+        label: r.label,
+        route: r.route,
+      })) || [];
+
     return {
       conversationId: convId,
       messageId: assistantMsgId,
       reply: finalState.reply,
+      structured,
       citations: finalState.citations,
       actions,
+      relatedEntities,
       searchedWeb: finalState.searchedWeb,
     };
   }
