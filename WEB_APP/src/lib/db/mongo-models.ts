@@ -199,6 +199,7 @@ const MessageSchema = baseSchema({
   role: { type: String },
   content: { type: String },
   citations: { type: M },
+  structured: { type: M },
   createdAt: { type: String },
 });
 

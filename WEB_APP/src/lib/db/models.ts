@@ -347,6 +347,17 @@ export interface MessageRecord {
     domain?: string;
     snippet?: string;
   }[];
+  // Structured UI payload (sections/cards derived from real retrieval state).
+  // Older messages lack it — clients fall back to the Markdown renderer.
+  structured?: {
+    message: string;
+    sections: unknown[];
+    citations: unknown[];
+    actions: { type: string; label: string; route: string; entityId?: string }[];
+    relatedEntities: { kind: string; id?: string; label: string; route: string }[];
+    evidence: unknown[];
+    status: string;
+  };
   createdAt: string;
 }
 

@@ -176,6 +176,67 @@ export class ApiClient {
 
   // Chat / AI Assistant APIs
   static chat = {
+    stream: async (
+      query: string,
+      opts: {
+        conversationId?: string;
+        pageContext?: {
+          pathname?: string;
+          pageName?: string;
+          pageDescription?: string;
+          selectedSchemeId?: string;
+          selectedSchemeName?: string;
+          analysisId?: string;
+          documentId?: string;
+          relevantEntityId?: string;
+        };
+        onEvent: (event: string, data: any) => void;
+        signal?: AbortSignal;
+      }
+    ) => {
+      const res = await fetch("/api/ai/chat/stream", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, conversationId: opts.conversationId, pageContext: opts.pageContext }),
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      });
+      if (!res.ok || !res.body) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Chat stream failed with status ${res.status}`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const flush = () => {
+        const events = buffer.split("\n\n");
+        buffer = events.pop() || "";
+        for (const ev of events) {
+          if (!ev.trim()) continue;
+          const lines = ev.split("\n");
+          const type = (lines[0] || "").replace("event:", "").trim();
+          const dataStr = (lines.slice(1).find((l) => l.startsWith("data:")) || "").replace("data:", "").trim();
+          if (!type || !dataStr) continue;
+          try {
+            opts.onEvent(type, JSON.parse(dataStr));
+          } catch {
+            if (type === "token") opts.onEvent(type, dataStr);
+          }
+        }
+      };
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+          flush();
+        }
+        if (done) {
+          buffer += decoder.decode();
+          flush();
+          break;
+        }
+      }
+    },
     send: async (
       query: string,
       conversationId?: string,
@@ -198,8 +259,20 @@ export class ApiClient {
           content: string;
           sources: { type: string; title: string; ref: string; url?: string; domain?: string; snippet?: string }[];
         };
+        structured?: {
+          message: string;
+          sections: any[];
+          citations: any[];
+          actions: { type: string; label: string; route: string; entityId?: string }[];
+          relatedEntities: { kind: string; id?: string; label: string; route: string }[];
+          evidence: any[];
+          status: string;
+        } | null;
         actions?: { type: string; label: string; route: string; entityId?: string }[];
         citations?: { type: string; title: string; ref: string; url?: string; domain?: string; snippet?: string }[];
+        relatedEntities?: { kind: "scheme" | "incubator" | "requirement" | "document" | "analysis"; id?: string; label: string; route: string }[];
+        evidence?: any[];
+        status?: string;
         metadata?: {
           webSearchUsed: boolean;
           searchProvider?: string;

@@ -5,19 +5,15 @@ import { usePathname } from "next/navigation";
 import {
   Sparkles,
   X,
-  Send,
-  Bot,
-  User,
-  Scale,
-  FileText,
-  ShieldCheck,
-  CheckCircle2,
-  AlertCircle,
   CornerDownLeft
 } from "lucide-react";
 import { Scheme, StartupContext } from "@/types/deep-analysis";
 import { api } from "@/lib/api-client";
 import { buildPageContext } from "@/lib/chat-page-context";
+import { ArovaMessage } from "@/components/arova/ArovaMessage";
+import { ResearchStatus, type ResearchState } from "@/components/arova/citations";
+import type { ArovaStructured, ArovaAction, ArovaRelatedEntity, ArovaCitation } from "@/lib/chat/structured";
+import { parseStructured } from "@/lib/chat/structured";
 
 interface AskSchemeSenseDrawerProps {
   isOpen: boolean;
@@ -27,9 +23,16 @@ interface AskSchemeSenseDrawerProps {
 }
 
 interface Message {
+  id: string;
   role: "user" | "assistant";
   content: string;
-  citations?: { type: string; title: string; ref: string; url?: string }[];
+  citations?: ArovaCitation[];
+  structured?: ArovaStructured | null;
+  actions?: ArovaAction[];
+  related?: ArovaRelatedEntity[];
+  followUps?: string[];
+  research?: ResearchState | null;
+  streaming?: boolean;
 }
 
 export function AskSchemeSenseDrawer({
@@ -43,63 +46,93 @@ export function AskSchemeSenseDrawer({
   const greetingName = startupContext?.name || "your startup";
   const [messages, setMessages] = useState<Message[]>([
     {
+      id: "welcome",
       role: "assistant",
-      content: `I am AROVA Investigator. I answer from your startup profile (${greetingName}), your uploaded documents, and official scheme clauses — with citations. Ask me anything about eligibility or missing evidence.`,
+      content: `I am AROVA Investigator. I answer from your startup profile (${greetingName}), your uploaded documents, and official scheme sources — with citations. Ask me anything about eligibility or latest updates.`,
     },
   ]);
 
   const suggestedQuestions = [
     "Why am I not eligible for this scheme?",
+    "Latest official updates for this scheme?",
     "Which document is missing?",
-    "Show me the evidence.",
     "What should I do next?",
-    "Find similar schemes.",
-    "Explain this requirement.",
   ];
 
   const [conversationId, setConversationId] = useState<string | undefined>();
   const pathname = usePathname();
 
+  const patchMessage = (id: string, patch: Partial<Message>) =>
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+
   const handleSend = async (textToSend?: string) => {
     const q = textToSend || inputQuery;
     if (!q.trim() || isTyping) return;
 
-    setMessages(prev => [...prev, { role: "user", content: q }]);
+    const assistantId = `a_${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      { id: `u_${Date.now()}`, role: "user", content: q },
+      {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        streaming: true,
+        research: { stage: "understanding", label: "Understanding your question" },
+      },
+    ]);
     setInputQuery("");
     setIsTyping(true);
 
     try {
-      const data = await api.chat.send(
-        q,
+      let streamContent = "";
+      await api.chat.stream(q, {
         conversationId,
-        selectedScheme?.id,
-        buildPageContext(pathname, {
+        pageContext: buildPageContext(pathname, {
           selectedSchemeId: selectedScheme?.id,
           selectedSchemeName: selectedScheme?.name || selectedScheme?.shortName,
-        })
-      );
-
-      if (data.success && data.message) {
-        setMessages(prev => [
-          ...prev,
-          {
-            role: "assistant",
-            content: data.message.content,
-            citations: data.message.sources,
-          },
-        ]);
-      } else {
-        throw new Error("Chat failed");
+        }),
+        onEvent: (event, data) => {
+          if (event === "metadata") {
+            if (data.conversationId) setConversationId(data.conversationId);
+          } else if (event === "status") {
+            patchMessage(assistantId, { research: { stage: data.stage, label: data.label, sources: data.sources } });
+          } else if (event === "citations") {
+            patchMessage(assistantId, { citations: data as ArovaCitation[] });
+          } else if (event === "token") {
+            streamContent += typeof data === "string" ? data : "";
+            patchMessage(assistantId, { content: streamContent, research: null });
+          } else if (event === "structured") {
+            const s = parseStructured(data);
+            patchMessage(assistantId, {
+              structured: s,
+              citations: (s?.citations || []) as ArovaCitation[],
+              actions: s?.actions || [],
+              related: s?.relatedEntities || [],
+              followUps: s?.followUps || [],
+            });
+          } else if (event === "followups") {
+            patchMessage(assistantId, { followUps: Array.isArray(data) ? data : [] });
+          } else if (event === "end") {
+            patchMessage(assistantId, { streaming: false, research: null });
+          } else if (event === "error") {
+            throw new Error(data?.message || "Streaming failed");
+          }
+        },
+      });
+      patchMessage(assistantId, { streaming: false, research: null });
+      if (!conversationId) {
+        api.chat.listConversations().then((list) => {
+          const latest = list?.conversations?.[0]?.id;
+          if (latest) setConversationId(latest);
+        }).catch(() => null);
       }
     } catch (err: unknown) {
-      // Honest error — never a fabricated grounded answer.
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `I couldn't reach the analysis service just now (${err instanceof Error ? err.message : "network error"}). Your question is saved in this thread — please try again in a moment.`,
-        },
-      ]);
+      patchMessage(assistantId, {
+        streaming: false,
+        research: null,
+        content: `I couldn't reach the analysis service just now (${err instanceof Error ? err.message : "network error"}). Your question is saved in this thread — please try again in a moment.`,
+      });
     } finally {
       setIsTyping(false);
     }
@@ -110,14 +143,14 @@ export function AskSchemeSenseDrawer({
   return (
     <>
       {/* Backdrop */}
-      <div 
+      <div
         className="fixed inset-0 bg-neutral-900/30 backdrop-blur-xs z-50 transition-opacity"
-        onClick={onClose} 
+        onClick={onClose}
       />
 
       {/* Drawer */}
       <div className="fixed inset-y-0 right-0 max-w-md w-full bg-white shadow-2xl z-50 flex flex-col border-l border-neutral-200 animate-in slide-in-from-right duration-200">
-        
+
         {/* Header */}
         <div className="p-4 border-b border-neutral-200 flex items-center justify-between bg-neutral-50/90">
           <div className="flex items-center gap-2.5">
@@ -129,7 +162,7 @@ export function AskSchemeSenseDrawer({
                 Ask AROVA Investigator
               </h3>
               <p className="text-[11px] text-neutral-400">
-                Grounded on current startup dossier & gazette rules
+                Cited research on your dossier and official sources
               </p>
             </div>
           </div>
@@ -154,76 +187,58 @@ export function AskSchemeSenseDrawer({
           </div>
         )}
 
-        {/* Message Stream */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.map((msg, i) => (
-            <div 
-              key={i} 
-              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-            >
-              <div 
-                className={`max-w-[90%] rounded-2xl p-3.5 text-xs leading-relaxed ${
-                  msg.role === "user"
-                    ? "bg-neutral-900 text-white rounded-br-xs"
-                    : "bg-neutral-50 border border-neutral-200 text-neutral-800 rounded-bl-xs shadow-2xs"
-                }`}
-              >
-                <div className="whitespace-pre-line">{msg.content}</div>
-
-                {/* Citations Box */}
-                {msg.citations && msg.citations.length > 0 && (
-                  <div className="mt-2.5 pt-2 border-t border-neutral-200/60 space-y-1">
-                    <span className="text-[10px] uppercase font-bold text-neutral-400 block">
-                      Evidentiary Citations:
-                    </span>
-                    {msg.citations.map((c, idx) => {
-                      const isWeb = c.type === "web";
-                      const Icon = isWeb ? Sparkles : FileText;
-                      const colorClass = isWeb ? "text-blue-500" : "text-violet-500";
-                      const wrapperClass = isWeb ? "text-blue-700 bg-blue-50 border-blue-200" : "text-violet-700 bg-white border-neutral-200";
-                      return (
-                        <div key={idx} className={`flex items-center gap-1.5 text-[10px] font-mono px-2 py-0.5 rounded border ${wrapperClass}`}>
-                          <Icon className={`w-3 h-3 shrink-0 ${colorClass}`} />
-                          {isWeb ? (
-                            <a href={c.url} target="_blank" rel="noopener noreferrer" className="font-semibold truncate hover:underline">
-                              {c.title}
-                            </a>
-                          ) : (
-                            <span className="font-semibold truncate">{c.title}</span>
-                          )}
-                          <span className="text-neutral-400 shrink-0">({c.ref})</span>
-                        </div>
-                      );
-                    })}
+        {/* Message Stream — ChatGPT-like */}
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex flex-col gap-5">
+            {messages.map((msg) =>
+              msg.role === "user" ? (
+                <div key={msg.id} className="flex justify-end">
+                  <div className="max-w-[85%] bg-neutral-100 text-neutral-900 rounded-2xl rounded-br-md px-3.5 py-2.5 text-xs leading-relaxed">
+                    <div className="whitespace-pre-line">{msg.content}</div>
                   </div>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {isTyping && (
-            <div className="flex justify-start">
-              <div className="bg-neutral-50 border border-neutral-200 rounded-2xl rounded-bl-xs px-4 py-3 flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                <div className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                <div className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" />
-              </div>
-            </div>
-          )}
+                </div>
+              ) : (
+                <div key={msg.id} className="flex gap-2.5 min-w-0">
+                  <div className="w-6 h-6 rounded-full bg-violet-600 flex items-center justify-center shrink-0 mt-0.5">
+                    <Sparkles className="w-3 h-3 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    {msg.research && !msg.content && (!msg.citations || msg.citations.length === 0) ? (
+                      <ResearchStatus state={msg.research} />
+                    ) : (
+                      <>
+                        <ArovaMessage
+                          structured={msg.structured}
+                          markdown={msg.content}
+                          citations={(msg.citations || []) as ArovaCitation[]}
+                          actions={msg.actions}
+                          related={msg.related}
+                          followUps={msg.followUps}
+                          onFollowUp={(fq) => handleSend(fq)}
+                          streaming={msg.streaming}
+                          compact
+                        />
+                        {msg.research && (msg.content || (msg.citations && msg.citations.length > 0)) ? (
+                          <div className="mt-1"><ResearchStatus state={msg.research} /></div>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )
+            )}
+          </div>
         </div>
 
         {/* Suggested Queries Chips */}
         <div className="p-3 border-t border-neutral-100 bg-neutral-50/50">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1.5">
-            Suggested Inquiries
-          </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex gap-1.5 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {suggestedQuestions.map((q, idx) => (
               <button
                 key={idx}
                 type="button"
                 onClick={() => handleSend(q)}
-                className="px-2.5 py-1 bg-white hover:bg-violet-50 text-neutral-700 hover:text-violet-700 text-[11px] font-medium rounded-lg border border-neutral-200 hover:border-violet-200 transition-colors shadow-2xs text-left"
+                className="px-2.5 py-1 bg-white hover:bg-violet-50 text-neutral-700 hover:text-violet-700 text-[11px] font-medium rounded-lg border border-neutral-200 hover:border-violet-200 transition-colors whitespace-nowrap text-left"
               >
                 {q}
               </button>

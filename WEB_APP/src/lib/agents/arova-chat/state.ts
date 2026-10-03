@@ -1,5 +1,6 @@
 import type { DocumentChunk } from "../../db/models";
 import type { TavilySearchResult } from "../../services/tavily";
+import type { ArovaStructured } from "../../chat/structured";
 
 export interface ChatPageContext {
   pathname?: string;
@@ -13,8 +14,10 @@ export interface ChatPageContext {
 }
 
 export interface RetrievalPlan {
-  /** What the user is asking about. */
+  /** What the user is asking about (legacy coarse set, kept for compat). */
   intents: ("documents" | "profile" | "schemes" | "eligibility" | "analysis" | "general")[];
+  /** Explicit fine-grained intents (§15). */
+  fineIntents?: string[];
   needsDocs: boolean;
   needsGov: boolean;
   needsSchemes: boolean;
@@ -56,6 +59,7 @@ export interface ArovaChatState {
   searchedWeb?: boolean;
   // Output
   reply: string;
+  structured: ArovaStructured | null;
   citations: {
     type: "document" | "official_source" | "web";
     title: string;
@@ -63,6 +67,13 @@ export interface ArovaChatState {
     url?: string;
     domain?: string;
     snippet?: string;
+    sourceName?: string;
+    sourceType?: string;
+    favicon?: string;
+    documentId?: string;
+    page?: number;
+    section?: string;
+    relevance?: number;
   }[];
   errors: string[];
 }
