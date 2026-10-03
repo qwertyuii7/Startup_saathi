@@ -1,6 +1,6 @@
 import { DocumentChunk } from "../db/models";
 import { getEmbeddingProvider } from "../embeddings/provider";
-import { getQdrantClient, ensureCollection } from "../qdrant/client";
+import { getQdrantClient, ensureCollection, getActiveCollection, deleteDocumentVectors, deleteUserVectors, countDocumentVectors } from "../qdrant/client";
 import { config } from "../config";
 import { v4 as uuidv4 } from "uuid";
 
@@ -35,7 +35,7 @@ export class VectorStore {
     const qdrant = getQdrantClient();
     
     // Check if we already have the government knowledge base indexed
-    const existing = await qdrant.scroll(config.qdrant.collection, {
+    const existing = await qdrant.scroll(getActiveCollection(), {
       filter: {
         must: [{ key: "startupId", match: { value: "government_knowledge_base" } }]
       },
@@ -115,7 +115,7 @@ export class VectorStore {
     }
 
     if (points.length > 0) {
-      await qdrant.upsert(config.qdrant.collection, {
+      await qdrant.upsert(getActiveCollection(), {
         wait: true,
         points
       });
@@ -173,22 +173,63 @@ export class VectorStore {
       qdrantFilter.should = shouldConditions;
     }
 
-    // @ts-ignore: Qdrant TS types missing query in this version
-    const searchResults = await qdrant.query(config.qdrant.collection, {
+    const rawResults: unknown = await qdrant.query(getActiveCollection(), {
       query: queryVector,
       filter: qdrantFilter,
       limit: topK,
-      with_payload: true
-    });
+      with_payload: true,
+    } as unknown as Record<string, unknown>);
 
-    // @ts-ignore: bypass implicit any
-    return searchResults.map((res: any) => ({
+    // js-client-rest v1.19 `query()` resolves to QueryResponse
+    // `{ points: ScoredPoint[] }` (not a bare array). Normalize both.
+    const points: Array<{ id: unknown; score?: number; payload?: Record<string, unknown> }> =
+      Array.isArray(rawResults)
+        ? (rawResults as Array<{ id: unknown; score?: number; payload?: Record<string, unknown> }>)
+        : (((rawResults as { points?: unknown }).points as Array<{ id: unknown; score?: number; payload?: Record<string, unknown> }>) || []);
+
+    return points.map((res) => ({
       chunk: {
-        id: res.id as string,
-        ...res.payload
+        id: String(res.id),
+        ...((res.payload || {}) as Record<string, unknown>),
       } as unknown as DocumentChunk,
-      score: res.score
+      score: typeof res.score === "number" ? res.score : 0,
     }));
+  }
+
+  /** Alias with filters for callers that need explicit filtered search. */
+  async searchWithFilters(query: string, filter: VectorFilter, topK = 6): Promise<RetrievalResult[]> {
+    return this.search(query, filter, topK);
+  }
+
+  /** Remove all indexed chunks for a document (called on document delete/reindex). */
+  async deleteDocumentVectors(documentId: string): Promise<void> {
+    await deleteDocumentVectors(documentId);
+  }
+
+  /** Remove all indexed chunks for a user. */
+  async deleteUserVectors(userId: string): Promise<void> {
+    await deleteUserVectors(userId);
+  }
+
+  /** Re-index a single document's chunks (delete + re-upsert). */
+  async reindexDocument(
+    chunks: Omit<DocumentChunk, "id" | "createdAt" | "vector">[]
+  ): Promise<DocumentChunk[]> {
+    if (chunks.length > 0) {
+      await deleteDocumentVectors(chunks[0].documentId);
+    }
+    return this.addDocumentChunks(chunks);
+  }
+
+  /** Number of indexed vectors for a document. */
+  async countDocumentVectors(documentId: string): Promise<number> {
+    return countDocumentVectors(documentId);
+  }
+
+  /** Health check: Qdrant reachable + collection exists. */
+  async healthCheck(): Promise<{ reachable: boolean; collectionExists: boolean }> {
+    const { qdrantHealthCheck } = await import("../qdrant/client");
+    return qdrantHealthCheck();
   }
 }
 

@@ -11,7 +11,7 @@ import { buildPageContext } from "@/lib/chat-page-context";
 interface Message {
   role: "user" | "assistant";
   content: string;
-  citations?: { type: "document" | "official_source"; title: string; ref: string; url?: string }[];
+  citations?: { type: "document" | "official_source" | "web"; title: string; ref: string; url?: string; domain?: string; snippet?: string }[];
 }
 
 export function CopilotPanel() {

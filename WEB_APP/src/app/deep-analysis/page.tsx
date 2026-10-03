@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useWorkspaceAnalysis } from "@/lib/analysis-context";
 import { 
@@ -22,6 +23,34 @@ import {
 export default function WorkspaceOverviewPage() {
   const { analysis, isLoading, error } = useWorkspaceAnalysis();
   const router = useRouter();
+  const [startup, setStartup] = useState<{
+    stage?: string; startupStage?: string;
+    industry?: string; sector?: string;
+    city?: string; state?: string;
+    annualTurnover?: number; turnoverDisplay?: string;
+    employees?: number;
+    updatedAt?: string;
+  } | null>(null);
+  const [latestDocAt, setLatestDocAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/startup/profile", { credentials: "same-origin" })
+      .then((r) => r.json())
+      .then((d) => { if (d?.success && d.startup) setStartup(d.startup); })
+      .catch(() => undefined);
+    fetch("/api/documents", { credentials: "same-origin" })
+      .then((r) => r.json())
+      .then((d) => {
+        const docs = d?.documents || [];
+        const latest = docs
+          .map((x: { uploadedAt?: string }) => x.uploadedAt)
+          .filter(Boolean)
+          .sort()
+          .pop();
+        if (latest) setLatestDocAt(latest);
+      })
+      .catch(() => undefined);
+  }, []);
 
   if (isLoading) {
     return (
@@ -55,6 +84,24 @@ export default function WorkspaceOverviewPage() {
   }
 
   const missingReqs = analysis.findings.flatMap(s => s.blockingFactors).length;
+  const snapshot = {
+    stage: startup?.stage || startup?.startupStage || "—",
+    sector: startup?.industry || startup?.sector || "—",
+    location: [startup?.city, startup?.state].filter(Boolean).join(", ") || "India",
+    revenue: typeof startup?.annualTurnover === "number"
+      ? `₹${startup.annualTurnover.toLocaleString("en-IN")}`
+      : startup?.turnoverDisplay || "—",
+    team: typeof startup?.employees === "number" ? String(startup.employees) : "—",
+  };
+  const staleEvidence = (() => {
+    try {
+      if (!analysis?.updatedAt) return false;
+      const a = new Date(analysis.updatedAt).getTime();
+      if (startup?.updatedAt && new Date(startup.updatedAt).getTime() > a) return true;
+      if (latestDocAt && new Date(latestDocAt).getTime() > a) return true;
+      return false;
+    } catch { return false; }
+  })();
 
   return (
     <div className="space-y-10 pb-20">
@@ -72,27 +119,33 @@ export default function WorkspaceOverviewPage() {
           <h2 className="text-sm font-bold text-neutral-900 tracking-wider uppercase">Startup Snapshot</h2>
           <Link href="/profile" className="text-[11px] font-bold text-violet-600 hover:text-violet-700">Update Profile</Link>
         </div>
+
+        {staleEvidence && (
+          <div className="mb-4 px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-800">
+            New evidence available — re-run analysis to refresh these results.
+          </div>
+        )}
         
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
           <div>
             <div className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5"><Building2 className="w-3 h-3" /> Stage</div>
-            <div className="text-sm font-bold text-neutral-900">Seed</div>
+            <div className="text-sm font-bold text-neutral-900">{snapshot.stage}</div>
           </div>
           <div>
             <div className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5"><Target className="w-3 h-3" /> Sector</div>
-            <div className="text-sm font-bold text-neutral-900">Technology</div>
+            <div className="text-sm font-bold text-neutral-900">{snapshot.sector}</div>
           </div>
           <div>
             <div className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5"><MapPin className="w-3 h-3" /> Location</div>
-            <div className="text-sm font-bold text-neutral-900">India</div>
+            <div className="text-sm font-bold text-neutral-900">{snapshot.location}</div>
           </div>
           <div>
             <div className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5"><DollarSign className="w-3 h-3" /> Revenue</div>
-            <div className="text-sm font-bold text-neutral-900">Pre-revenue</div>
+            <div className="text-sm font-bold text-neutral-900">{snapshot.revenue}</div>
           </div>
           <div>
             <div className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5"><Users className="w-3 h-3" /> Team</div>
-            <div className="text-sm font-bold text-neutral-900">1-10</div>
+            <div className="text-sm font-bold text-neutral-900">{snapshot.team}</div>
           </div>
           <div>
             <div className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 flex items-center gap-1.5"><FileText className="w-3 h-3" /> Evidence</div>

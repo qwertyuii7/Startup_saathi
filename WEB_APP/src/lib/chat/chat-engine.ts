@@ -12,6 +12,13 @@ export interface ChatRequestOptions {
   pageContext?: ChatPageContext;
 }
 
+export interface ChatAction {
+  type: string;
+  label: string;
+  route: string;
+  entityId?: string;
+}
+
 export interface ChatResponsePayload {
   conversationId: string;
   messageId: string;
@@ -24,6 +31,7 @@ export interface ChatResponsePayload {
     domain?: string;
     snippet?: string;
   }[];
+  actions: ChatAction[];
   searchedWeb?: boolean;
 }
 
@@ -108,11 +116,29 @@ export class ChatEngine {
       createdAt: new Date().toISOString(),
     });
 
+    // 5. Cross-page actions so chat connects to the workspace.
+    const analysisId = pageContext.analysisId;
+    const actions: ChatAction[] = [
+      { type: "open_eligibility", label: "Open Eligibility", route: `/deep-analysis/eligibility${analysisId ? `?id=${analysisId}` : ""}` },
+      { type: "view_evidence", label: "View Evidence", route: `/deep-analysis/evidence${analysisId ? `?id=${analysisId}` : ""}` },
+      { type: "open_action_plan", label: "Open Action Plan", route: `/deep-analysis/action-plan${analysisId ? `?id=${analysisId}` : ""}` },
+    ];
+    const schemeId = selectedSchemeId || pageContext.selectedSchemeId;
+    if (schemeId) {
+      actions.unshift({ type: "view_scheme", label: "View Scheme", route: `/deep-analysis/schemes${analysisId ? `?id=${analysisId}` : ""}`, entityId: schemeId });
+    }
+    if (pageContext.documentId) {
+      actions.push({ type: "open_document", label: "Open Document", route: `/deep-analysis/documents${analysisId ? `?id=${analysisId}` : ""}`, entityId: pageContext.documentId });
+    } else {
+      actions.push({ type: "open_documents", label: "Upload Document", route: `/deep-analysis/documents${analysisId ? `?id=${analysisId}` : ""}` });
+    }
+
     return {
       conversationId: convId,
       messageId: assistantMsgId,
       reply: finalState.reply,
       citations: finalState.citations,
+      actions,
       searchedWeb: finalState.searchedWeb,
     };
   }

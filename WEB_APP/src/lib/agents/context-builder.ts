@@ -1,5 +1,4 @@
-export class ContextBuilder {
-  private startupProfile: any = null;
+export class ContextBuilder {  private startupProfile: any = null;
   private founderProfile: any = null;
   private documentInventory: any[] = [];
   private documentChunks: any[] = [];
@@ -87,3 +86,84 @@ export class ContextBuilder {
     return parts.join("\n");
   }
 }
+
+export interface AROVAContextParams {
+  userId: string;
+  startupId?: string;
+  pathname?: string;
+  pageName?: string;
+  schemeId?: string;
+  analysisId?: string;
+  documentId?: string;
+}
+
+/**
+ * Central AROVA context builder (spec §10). Single source of truth reused by
+ * Deep Analysis, Ask AROVA, scheme/eligibility/evidence/action-plan pages.
+ * Ownership is enforced: everything is scoped to the authenticated user.
+ */
+export async function buildAROVAContext(params: AROVAContextParams) {
+  const { db } = await import("../db/store");
+  const { userId } = params;
+
+  const user = await db.getUserById(userId);
+  const startup = params.startupId
+    ? (await db.getStartupById(params.startupId)) || (await db.getStartupByUserId(userId))
+    : await db.getStartupByUserId(userId);
+  const startupId = startup?.id || params.startupId || "";
+
+  const [founder, documents, analyses] = await Promise.all([
+    db.getFounderProfileByUserId(userId),
+    startupId ? db.getDocumentsByStartupId(startupId) : Promise.resolve([]),
+    db.getAnalysesByUserId(userId),
+  ]);
+
+  const activeAnalysis = params.analysisId
+    ? analyses.find((a) => a.id === params.analysisId) || analyses[0] || null
+    : analyses[0] || null;
+
+  const findings = activeAnalysis?.findings || [];
+  const eligibility = findings.map((f) => ({
+    schemeId: f.schemeId,
+    schemeName: f.schemeName,
+    fitLevel: f.fitLevel,
+    criteriaMetCount: f.criteriaMetCount,
+    totalCriteriaCount: f.totalCriteriaCount,
+  }));
+  const requirements = findings.flatMap((f) =>
+    f.criteriaBreakdown.map((c) => ({ ...c, schemeId: f.schemeId, schemeName: f.schemeName }))
+  );
+  const evidence = requirements.filter((r) => r.evidenceDocumentName);
+  const gaps = findings.flatMap((f) => f.blockingFactors.map((b) => ({ ...b, schemeId: f.schemeId, schemeName: f.schemeName })));
+
+  return {
+    user: user ? { id: user.id, name: user.name, email: user.email } : null,
+    startup,
+    founder,
+    business: startup
+      ? { industry: startup.industry, stage: startup.stage, businessModel: startup.businessModel, turnoverDisplay: startup.turnoverDisplay }
+      : null,
+    legal: startup
+      ? { entityType: startup.entityType || startup.legalEntity, dpiitStatus: startup.dpiitStatus, state: startup.state, city: startup.city }
+      : null,
+    documents: documents.map((d) => ({ id: d.id, name: d.name, type: d.type, status: d.status, pageCount: d.pageCount, chunksCount: d.chunksCount })),
+    activeAnalysis,
+    eligibility,
+    requirements,
+    evidence,
+    gaps,
+    risks: activeAnalysis?.risks || [],
+    opportunities: activeAnalysis?.opportunities || [],
+    incubators: activeAnalysis?.incubatorMatches || [],
+    actionPlan: activeAnalysis?.actionPlan || [],
+    readiness: activeAnalysis?.readiness || null,
+    currentPage: params.pageName || params.pathname || null,
+    currentEntity: {
+      schemeId: params.schemeId || null,
+      analysisId: params.analysisId || activeAnalysis?.id || null,
+      documentId: params.documentId || null,
+    },
+  };
+}
+
+export type AROVAContext = Awaited<ReturnType<typeof buildAROVAContext>>;

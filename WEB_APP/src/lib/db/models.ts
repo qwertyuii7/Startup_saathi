@@ -297,6 +297,18 @@ export interface DeepAnalysisRecord {
   status: "in_progress" | "completed" | "error";
   createdAt: string;
   updatedAt: string;
+  // Grounded synthesis (added post-audit; optional for backward compat)
+  executiveSummary?: string;
+  readiness?: {
+    totalRequirements: number;
+    supported: number;
+    needsVerification: number;
+    missing: number;
+    score: number;
+    formula: string;
+  };
+  risks?: { title: string; evidence: string; schemeId?: string }[];
+  opportunities?: { title: string; reason: string; schemeId?: string }[];
 }
 
 export interface IncubatorRecord {
@@ -328,10 +340,12 @@ export interface MessageRecord {
   role: "user" | "assistant" | "system";
   content: string;
   citations?: {
-    type: "document" | "official_source";
+    type: "document" | "official_source" | "web";
     title: string;
     ref: string;
     url?: string;
+    domain?: string;
+    snippet?: string;
   }[];
   createdAt: string;
 }

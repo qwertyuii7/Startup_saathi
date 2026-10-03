@@ -226,6 +226,23 @@ export class MongoStore {
     return toPlain<ConversationRecord>(await m.Conversation.findOne({ id }).exec());
   }
 
+  async getConversationsByUserId(userId: string): Promise<ConversationRecord[]> {
+    const m = await models();
+    await this.ready();
+    const list = await m.Conversation.find({ userId }).exec();
+    return toPlainList<ConversationRecord>(list).sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
+  }
+
+  async deleteConversation(id: string): Promise<boolean> {
+    const m = await models();
+    await this.ready();
+    await m.Message.deleteMany({ conversationId: id }).exec();
+    const res = await m.Conversation.deleteOne({ id }).exec();
+    return (res.deletedCount ?? 0) > 0;
+  }
+
   async saveMessage(msg: MessageRecord): Promise<MessageRecord> {
     const m = await models();
     await this.ready();

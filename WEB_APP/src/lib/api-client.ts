@@ -198,6 +198,8 @@ export class ApiClient {
           content: string;
           sources: { type: string; title: string; ref: string; url?: string; domain?: string; snippet?: string }[];
         };
+        actions?: { type: string; label: string; route: string; entityId?: string }[];
+        citations?: { type: string; title: string; ref: string; url?: string; domain?: string; snippet?: string }[];
         metadata?: {
           webSearchUsed: boolean;
           searchProvider?: string;
@@ -209,6 +211,17 @@ export class ApiClient {
     },
     getHistory: async (conversationId: string) => {
       return ApiClient.request<{ success: boolean; messages: any[] }>(`/api/ai/chat/history?conversationId=${conversationId}`);
+    },
+    listConversations: async () => {
+      return ApiClient.request<{ success: boolean; conversations: any[] }>("/api/ai/conversations");
+    },
+    getConversation: async (id: string) => {
+      return ApiClient.request<{ success: boolean; conversation: any; messages: any[] }>(`/api/ai/conversations/${id}`);
+    },
+    deleteConversation: async (id: string) => {
+      return ApiClient.request<{ success: boolean; message: string }>(`/api/ai/conversations/${id}`, {
+        method: "DELETE",
+      });
     },
   };
 

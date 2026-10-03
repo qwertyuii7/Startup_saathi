@@ -431,6 +431,20 @@ export class SchemeSenseStore {
     return this.conversations.get(id) || null;
   }
 
+  async getConversationsByUserId(userId: string): Promise<ConversationRecord[]> {
+    return Array.from(this.conversations.values())
+      .filter((c) => c.userId === userId)
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+
+  async deleteConversation(id: string): Promise<boolean> {
+    const existed = this.conversations.delete(id);
+    for (const [mid, m] of this.messages) {
+      if (m.conversationId === id) this.messages.delete(mid);
+    }
+    return existed;
+  }
+
   async saveMessage(msg: MessageRecord): Promise<MessageRecord> {
     this.messages.set(msg.id, msg);
     return msg;

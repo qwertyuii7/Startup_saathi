@@ -15,7 +15,7 @@ export interface TavilySearchResponse {
 
 export class TavilyService {
   static async searchWeb(query: string, limit = 5): Promise<TavilySearchResponse> {
-    const apiKey = process.env.TAVILY_API_KEY;
+    const apiKey = config.tavily.apiKey || process.env.TAVILY_API_KEY;
     if (!apiKey) {
       throw new Error("Missing TAVILY_API_KEY environment variable");
     }

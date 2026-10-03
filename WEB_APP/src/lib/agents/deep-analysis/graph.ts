@@ -138,11 +138,81 @@ async function matchIncubators(state: DeepAnalysisState): Promise<Partial<DeepAn
 // Step 6: Synthesize Executive Summary & Persist Record
 async function synthesizeAndSave(state: DeepAnalysisState): Promise<Partial<DeepAnalysisState>> {
   const analysisId = state.actionPlan[0]?.analysisId || `analysis_${uuidv4().substring(0, 8)}`;
-  
+
   const eligibleCount = state.findings.filter(f => f.fitLevel === "eligible").length;
   const potentialCount = state.findings.filter(f => f.fitLevel === "potential").length;
   const missingCount = state.findings.filter(f => f.fitLevel === "missing_requirement").length;
   const notEligibleCount = state.findings.filter(f => f.fitLevel === "not_eligible").length;
+
+  // Documented readiness formula: satisfied=1, needs_verification=0.5, else 0.
+  let totalRequirements = 0;
+  let supported = 0;
+  let needsVerification = 0;
+  for (const f of state.findings) {
+    for (const c of f.criteriaBreakdown) {
+      totalRequirements += 1;
+      if (c.status === "satisfied") supported += 1;
+      else if (c.status === "needs_verification") needsVerification += 1;
+    }
+  }
+  const missing = Math.max(0, totalRequirements - supported - needsVerification);
+  const score = totalRequirements === 0 ? 0 : Math.round(((supported + needsVerification * 0.5) / totalRequirements) * 100);
+  const readiness = {
+    totalRequirements,
+    supported,
+    needsVerification,
+    missing,
+    score,
+    formula: "readiness = (supported + 0.5 * needs_verification) / total_requirements",
+  };
+
+  // Grounded risks: one per distinct blocking resolution (with evidence).
+  const riskMap = new Map<string, { title: string; evidence: string; schemeId?: string }>();
+  for (const f of state.findings) {
+    for (const b of f.blockingFactors) {
+      if (!riskMap.has(b.resolutionAction)) {
+        riskMap.set(b.resolutionAction, {
+          title: b.issue,
+          evidence: `${b.required} — currently: ${b.current} (${f.schemeName})`,
+          schemeId: f.schemeId,
+        });
+      }
+    }
+  }
+  const risks = Array.from(riskMap.values()).slice(0, 10);
+
+  // Grounded opportunities: eligible + potential schemes with reasons.
+  const opportunities = state.findings
+    .filter((f) => f.fitLevel === "eligible" || f.fitLevel === "potential")
+    .slice(0, 10)
+    .map((f) => ({
+      title: f.schemeName,
+      reason:
+        f.fitLevel === "eligible"
+          ? `All ${f.totalCriteriaCount} requirements satisfied (${f.maxBenefit}).`
+          : `${f.criteriaMetCount}/${f.totalCriteriaCount} requirements satisfied — close with ${f.blockingFactors.length} blocker(s).`,
+      schemeId: f.schemeId,
+    }));
+
+  // Groq executive summary grounded ONLY in these computed numbers.
+  let executiveSummary = `Evaluated ${state.findings.length} schemes: ${eligibleCount} eligible, ${potentialCount} potential, ${missingCount} missing evidence, ${notEligibleCount} not eligible. Readiness ${score}% across ${totalRequirements} requirements.`;
+  try {
+    const summary = await GroqService.chat([
+      {
+        role: "system",
+        content: "You summarize startup scheme analyses using ONLY the numbers provided. Never invent schemes, documents, or figures. Keep it to 3 sentences, professional and actionable.",
+      },
+      {
+        role: "user",
+        content: `Schemes: ${state.findings.length}, eligible: ${eligibleCount}, potential: ${potentialCount}, missing: ${missingCount}, not eligible: ${notEligibleCount}. Readiness: ${score}% (${supported} supported, ${needsVerification} verification, ${missing} missing of ${totalRequirements}). Top blockers: ${risks.slice(0, 3).map((r) => r.title).join("; ") || "none"}.`,
+      },
+    ]);
+    if (summary && !summary.startsWith("AROVA's AI service is temporarily unreachable")) {
+      executiveSummary = summary.trim();
+    }
+  } catch {
+    // Keep deterministic fallback — never fail analysis on Groq outage.
+  }
 
   const record: DeepAnalysisRecord = {
     id: analysisId,
@@ -159,6 +229,10 @@ async function synthesizeAndSave(state: DeepAnalysisState): Promise<Partial<Deep
     findings: state.findings,
     actionPlan: state.actionPlan,
     incubatorMatches: state.incubatorMatches,
+    executiveSummary,
+    readiness,
+    risks,
+    opportunities,
     status: "completed",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
