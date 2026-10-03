@@ -8,15 +8,15 @@ import PixelCard from "./PixelCard";
 export function CTA() {
   return (
     <div className="relative w-full overflow-hidden">
-      <PixelCard 
-        variant="default" 
+      <PixelCard
+        variant="default"
         className="w-full flex flex-col justify-between bg-[#0A0A0A]"
         gap={12}
         speed={45}
         colors="#a78bfa,#e879f9,#fb923c,#c084fc,#f472b6"
       >
         <div className="relative z-20 flex-1 flex flex-col items-center justify-center text-center max-w-4xl mx-auto px-6 py-16">
-          <motion.h2 
+          <motion.h2
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
@@ -24,8 +24,8 @@ export function CTA() {
           >
             Ready to claim your unfair advantage?
           </motion.h2>
-          
-          <motion.p 
+
+          <motion.p
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
@@ -34,14 +34,14 @@ export function CTA() {
           >
             Join hundreds of Indian startups successfully navigating government grants, schemes, and incubator matching with AI precision.
           </motion.p>
-          
+
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ delay: 0.2 }}
           >
-            <Link 
+            <Link
               href="/dashboard"
               className="group inline-flex items-center gap-3 bg-white text-black px-8 py-4 rounded-full font-medium text-lg hover:bg-neutral-100 transition-all shadow-xl hover:scale-105 active:scale-95"
             >
@@ -49,8 +49,8 @@ export function CTA() {
               <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
             </Link>
           </motion.div>
-          
-          <motion.p 
+
+          <motion.p
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
             viewport={{ once: true }}
