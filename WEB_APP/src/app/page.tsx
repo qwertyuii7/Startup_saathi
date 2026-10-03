@@ -25,7 +25,7 @@ export default function Home() {
             textColor: "#fff",
             links: [
               { label: "Scheme Discovery", href: "/dashboard" },
-              { label: "Eligibility Simulator", href: "/dashboard" }
+              { label: "Eligibility Simulator", href: "/simulator" }
             ]
           },
           {
